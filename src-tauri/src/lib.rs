@@ -212,15 +212,6 @@ pub fn run() {
                 };
 
                 let _ = app_handle.emit("gateway:status", status.clone());
-                if let Some(base_origin) = status.base_url.as_deref() {
-                    // Best-effort: if any CLI proxy is enabled, keep its config aligned with the actual gateway port.
-                    let base_origin = base_origin.to_string();
-                    let _ = blocking::run("startup_cli_proxy_sync_enabled", {
-                        let app_handle = app_handle.clone();
-                        move || cli_proxy::sync_enabled(&app_handle, &base_origin)
-                    })
-                    .await;
-                }
 
                 // WSL auto-detect and auto-configure (Windows only)
                 #[cfg(windows)]

@@ -352,7 +352,7 @@ export function CliManagerGeneralTab({
                     启动时 CLI 代理自愈
                   </h3>
                   <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                    应用启动后自动修复异常退出导致的 CLI 代理残留，并同步到当前网关端口。
+                    应用启动后仅修复异常退出导致的 CLI 代理残留状态，不会主动改写当前配置。
                   </p>
                 </div>
                 <div className="pt-1">
@@ -368,7 +368,7 @@ export function CliManagerGeneralTab({
                 </div>
               </div>
               <div className="text-xs text-slate-500 dark:text-slate-400">
-                建议保持开启；若你手动维护 CLI 配置文件且出现冲突，可临时关闭该开关。
+                建议保持开启；若你需要完全手动维护 CLI 配置文件，可临时关闭该开关。
               </div>
             </Card>
 

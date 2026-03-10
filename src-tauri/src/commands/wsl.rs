@@ -2,8 +2,6 @@
 
 use crate::app_state::{ensure_db_ready, DbInitState, GatewayState};
 #[cfg(windows)]
-use crate::cli_proxy;
-#[cfg(windows)]
 use crate::db;
 use crate::shared::mutex_ext::MutexExt;
 use crate::{blocking, gateway, settings, wsl};
@@ -256,15 +254,6 @@ pub(crate) async fn wsl_auto_configure_on_startup(
         };
 
         let _ = app.emit("gateway:status", &status);
-        if let Some(base_origin) = status.base_url.as_deref() {
-            let base_origin = base_origin.to_string();
-            let _ = blocking::run("wsl_startup_cli_proxy_sync_enabled", {
-                let app = app.clone();
-                move || cli_proxy::sync_enabled(&app, &base_origin)
-            })
-            .await;
-        }
-
         return do_wsl_auto_configure(app, &detection.distros, listen_mode, status.port).await;
     }
 
