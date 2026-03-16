@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.3](https://github.com/dyndynjyxa/aio-coding-hub/compare/aio-coding-hub-v0.32.2...aio-coding-hub-v0.32.3) (2026-03-16)
+
+
+### Bug Fixes
+
+* **ci:** 修复release工作流中appimagetool下载地址 ([67d8071](https://github.com/dyndynjyxa/aio-coding-hub/commit/67d8071fecf6dfc227f8e41d03f067ec481bfd4f))
+
 ## [0.32.2](https://github.com/dyndynjyxa/aio-coding-hub/compare/aio-coding-hub-v0.32.1...aio-coding-hub-v0.32.2) (2026-03-16)
 
 
