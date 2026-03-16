@@ -311,6 +311,351 @@ fn backup_for_enable<R: tauri::Runtime>(
     })
 }
 
+/// Merge-restore Claude `settings.json`: only revert the two proxy-managed env
+/// keys (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`) while preserving every
+/// other change the user may have made while the proxy was enabled.
+fn merge_restore_claude_settings_json(
+    target_path: &Path,
+    backup_path: &Path,
+) -> crate::shared::error::AppResult<()> {
+    const PROXY_ENV_KEYS: &[&str] = &["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN"];
+
+    let current_bytes = read_optional_file(target_path)?;
+    let backup_bytes = std::fs::read(backup_path).map_err(|e| {
+        format!(
+            "failed to read backup {} for claude_settings_json: {e}",
+            backup_path.display()
+        )
+    })?;
+
+    let mut current: serde_json::Value = match current_bytes {
+        Some(b) if !b.is_empty() => {
+            serde_json::from_slice(&b).unwrap_or_else(|_| serde_json::json!({}))
+        }
+        _ => serde_json::json!({}),
+    };
+
+    let backup: serde_json::Value =
+        serde_json::from_slice(&backup_bytes).unwrap_or_else(|_| serde_json::json!({}));
+
+    let backup_env = backup.get("env").and_then(|v| v.as_object());
+
+    if let Some(obj) = current.as_object_mut() {
+        if let Some(env) = obj.get_mut("env").and_then(|v| v.as_object_mut()) {
+            for key in PROXY_ENV_KEYS {
+                if let Some(original) = backup_env.and_then(|e| e.get(*key)) {
+                    env.insert(key.to_string(), original.clone());
+                } else {
+                    env.remove(*key);
+                }
+            }
+            if env.is_empty() {
+                obj.remove("env");
+            }
+        }
+    }
+
+    let mut bytes = serde_json::to_vec_pretty(&current)
+        .map_err(|e| format!("failed to serialize settings.json: {e}"))?;
+    bytes.push(b'\n');
+    write_file_atomic(target_path, &bytes)?;
+    Ok(())
+}
+
+/// Merge-restore Codex `auth.json`: only revert the proxy-managed keys
+/// (`OPENAI_API_KEY`, `auth_mode`) and restore `tokens` / `last_refresh` from
+/// the backup if they existed, while preserving any other user changes.
+fn merge_restore_codex_auth_json(
+    target_path: &Path,
+    backup_path: &Path,
+) -> crate::shared::error::AppResult<()> {
+    const PROXY_INSERTED_KEYS: &[&str] = &["OPENAI_API_KEY", "auth_mode"];
+    const PROXY_REMOVED_KEYS: &[&str] = &["tokens", "last_refresh"];
+
+    let current_bytes = read_optional_file(target_path)?;
+    let backup_bytes = std::fs::read(backup_path).map_err(|e| {
+        format!(
+            "failed to read backup {} for codex_auth_json: {e}",
+            backup_path.display()
+        )
+    })?;
+
+    let mut current: serde_json::Value = match current_bytes {
+        Some(b) if !b.is_empty() => {
+            serde_json::from_slice(&b).unwrap_or_else(|_| serde_json::json!({}))
+        }
+        _ => serde_json::json!({}),
+    };
+
+    let backup: serde_json::Value =
+        serde_json::from_slice(&backup_bytes).unwrap_or_else(|_| serde_json::json!({}));
+
+    if let Some(obj) = current.as_object_mut() {
+        let backup_obj = backup.as_object();
+
+        // Revert inserted keys
+        for key in PROXY_INSERTED_KEYS {
+            if let Some(original) = backup_obj.and_then(|b| b.get(*key)) {
+                obj.insert(key.to_string(), original.clone());
+            } else {
+                obj.remove(*key);
+            }
+        }
+
+        // Restore keys that the proxy removed
+        for key in PROXY_REMOVED_KEYS {
+            if let Some(original) = backup_obj.and_then(|b| b.get(*key)) {
+                obj.insert(key.to_string(), original.clone());
+            }
+        }
+    }
+
+    let mut bytes = serde_json::to_vec_pretty(&current)
+        .map_err(|e| format!("failed to serialize auth.json: {e}"))?;
+    bytes.push(b'\n');
+    write_file_atomic(target_path, &bytes)?;
+    Ok(())
+}
+
+/// Merge-restore Codex `config.toml`: revert the proxy-managed root keys
+/// (`model_provider`, `preferred_auth_method`) and the `[model_providers.aio]`
+/// section / `[windows] sandbox` while preserving user changes.
+fn merge_restore_codex_config_toml(
+    target_path: &Path,
+    backup_path: &Path,
+) -> crate::shared::error::AppResult<()> {
+    let current_bytes = read_optional_file(target_path)?;
+    let backup_bytes = std::fs::read(backup_path).map_err(|e| {
+        format!(
+            "failed to read backup {} for codex_config_toml: {e}",
+            backup_path.display()
+        )
+    })?;
+
+    let current_str = current_bytes
+        .as_deref()
+        .map(|b| String::from_utf8_lossy(b).to_string())
+        .unwrap_or_default();
+    let backup_str = String::from_utf8_lossy(&backup_bytes).to_string();
+
+    let mut lines: Vec<String> = if current_str.is_empty() {
+        Vec::new()
+    } else {
+        current_str.lines().map(|l| l.to_string()).collect()
+    };
+
+    let backup_lines: Vec<String> = if backup_str.is_empty() {
+        Vec::new()
+    } else {
+        backup_str.lines().map(|l| l.to_string()).collect()
+    };
+
+    // --- Revert root `model_provider` ---
+    let backup_model_provider = find_root_key_value(&backup_lines, "model_provider");
+    revert_root_key(
+        &mut lines,
+        "model_provider",
+        backup_model_provider.as_deref(),
+    );
+
+    // --- Revert root `preferred_auth_method` ---
+    let backup_auth_method = find_root_key_value(&backup_lines, "preferred_auth_method");
+    revert_root_key(
+        &mut lines,
+        "preferred_auth_method",
+        backup_auth_method.as_deref(),
+    );
+
+    // --- Remove the proxy-injected `[model_providers.aio]` section ---
+    // If the backup had this section, we leave it; otherwise remove it.
+    let backup_had_aio =
+        !find_model_provider_base_table_indices(&backup_lines, CODEX_PROVIDER_KEY).is_empty();
+    if !backup_had_aio {
+        remove_model_provider_section(&mut lines, CODEX_PROVIDER_KEY);
+    }
+
+    // --- Revert `[windows] sandbox` ---
+    // If the backup did not have `[windows]` sandbox, remove the one the proxy added.
+    let backup_had_windows_sandbox = has_windows_sandbox(&backup_lines);
+    if !backup_had_windows_sandbox {
+        remove_windows_sandbox(&mut lines);
+    }
+
+    let mut out = lines.join("\n");
+    out.push('\n');
+    write_file_atomic(target_path, out.as_bytes())?;
+    Ok(())
+}
+
+/// Merge-restore Gemini `.env`: only revert the two proxy-managed env vars
+/// (`GOOGLE_GEMINI_BASE_URL`, `GEMINI_API_KEY`) while preserving other entries.
+fn merge_restore_gemini_env(
+    target_path: &Path,
+    backup_path: &Path,
+) -> crate::shared::error::AppResult<()> {
+    const PROXY_ENV_KEYS: &[&str] = &["GOOGLE_GEMINI_BASE_URL", "GEMINI_API_KEY"];
+
+    let current_bytes = read_optional_file(target_path)?;
+    let backup_bytes = std::fs::read(backup_path).map_err(|e| {
+        format!(
+            "failed to read backup {} for gemini_env: {e}",
+            backup_path.display()
+        )
+    })?;
+
+    let current_str = current_bytes
+        .as_deref()
+        .map(|b| String::from_utf8_lossy(b).to_string())
+        .unwrap_or_default();
+    let backup_str = String::from_utf8_lossy(&backup_bytes).to_string();
+
+    let mut lines: Vec<String> = current_str.lines().map(|l| l.to_string()).collect();
+
+    for key in PROXY_ENV_KEYS {
+        let backup_val = env_var_value(&backup_str, key);
+        revert_env_var_line(&mut lines, key, backup_val.as_deref());
+    }
+
+    let mut out = lines.join("\n");
+    if !out.ends_with('\n') {
+        out.push('\n');
+    }
+    write_file_atomic(target_path, out.as_bytes())?;
+    Ok(())
+}
+
+// ── TOML helpers for merge-restore ──────────────────────────────────────────
+
+/// Find the value of a root-level `key = "value"` line (before any `[table]` header).
+fn find_root_key_value(lines: &[String], key: &str) -> Option<String> {
+    let first_table = lines
+        .iter()
+        .position(|l| l.trim().starts_with('['))
+        .unwrap_or(lines.len());
+    for line in &lines[..first_table] {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with(key) {
+            if let Some((_, v)) = trimmed.split_once('=') {
+                return Some(v.trim().to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Revert a root-level key to its backup value, or remove it if backup didn't have it.
+fn revert_root_key(lines: &mut Vec<String>, key: &str, backup_value: Option<&str>) {
+    let first_table = lines
+        .iter()
+        .position(|l| l.trim().starts_with('['))
+        .unwrap_or(lines.len());
+
+    let pos = lines[..first_table]
+        .iter()
+        .position(|l| l.trim_start().starts_with(key));
+
+    match (pos, backup_value) {
+        (Some(idx), Some(val)) => {
+            lines[idx] = format!("{key} = {val}");
+        }
+        (Some(idx), None) => {
+            lines.remove(idx);
+        }
+        (None, Some(val)) => {
+            // Backup had it but current doesn't — shouldn't happen, but restore it
+            lines.insert(0, format!("{key} = {val}"));
+        }
+        (None, None) => {} // Neither has it, nothing to do
+    }
+}
+
+/// Remove `[model_providers.<provider_key>]` section and its nested tables.
+fn remove_model_provider_section(lines: &mut Vec<String>, provider_key: &str) {
+    // Remove base tables
+    loop {
+        let indices = find_model_provider_base_table_indices(lines, provider_key);
+        if indices.is_empty() {
+            break;
+        }
+        let start = indices[0];
+        let end = find_next_table_header(lines, start.saturating_add(1));
+        lines.drain(start..end);
+    }
+
+    // Remove nested tables
+    loop {
+        let Some(start) = find_model_provider_nested_table_index(lines, provider_key) else {
+            break;
+        };
+        let end = find_next_table_header(lines, start.saturating_add(1));
+        lines.drain(start..end);
+    }
+}
+
+/// Check if backup lines contain a `[windows]` section with `sandbox` key.
+fn has_windows_sandbox(lines: &[String]) -> bool {
+    let Some(start) = lines.iter().position(|l| l.trim() == "[windows]") else {
+        return false;
+    };
+    let end = find_next_table_header(lines, start.saturating_add(1));
+    lines[start + 1..end]
+        .iter()
+        .any(|l| l.trim_start().starts_with("sandbox"))
+}
+
+/// Remove the `sandbox` key from the `[windows]` section; remove the section if empty.
+fn remove_windows_sandbox(lines: &mut Vec<String>) {
+    let Some(start) = lines.iter().position(|l| l.trim() == "[windows]") else {
+        return;
+    };
+    let end = find_next_table_header(lines, start.saturating_add(1));
+
+    // Remove sandbox line
+    let mut i = start + 1;
+    while i < end && i < lines.len() {
+        if lines[i].trim_start().starts_with("sandbox") {
+            lines.remove(i);
+            break;
+        }
+        i += 1;
+    }
+
+    // If only the header remains (with optional blank lines), remove the whole section
+    let new_end = find_next_table_header(lines, start.saturating_add(1));
+    let body_empty = lines[start + 1..new_end]
+        .iter()
+        .all(|l| l.trim().is_empty());
+    if body_empty {
+        lines.drain(start..new_end);
+    }
+}
+
+// ── .env helpers for merge-restore ──────────────────────────────────────────
+
+/// Revert an env var line to its backup value, or remove it if backup didn't have it.
+fn revert_env_var_line(lines: &mut Vec<String>, key: &str, backup_value: Option<&str>) {
+    let prefix_plain = format!("{key}=");
+    let prefix_export = format!("export {key}=");
+
+    let pos = lines.iter().position(|l| {
+        let trimmed = l.trim_start();
+        trimmed.starts_with(&prefix_plain) || trimmed.starts_with(&prefix_export)
+    });
+
+    match (pos, backup_value) {
+        (Some(idx), Some(val)) => {
+            lines[idx] = format!("{key}={val}");
+        }
+        (Some(idx), None) => {
+            lines.remove(idx);
+        }
+        (None, Some(val)) => {
+            lines.push(format!("{key}={val}"));
+        }
+        (None, None) => {}
+    }
+}
+
 fn restore_from_manifest<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     manifest: &CliProxyManifest,
@@ -333,6 +678,30 @@ fn restore_from_manifest<R: tauri::Runtime>(
                 return Err(format!("missing backup_rel for {}", entry.kind).into());
             };
             let backup_path = files_dir.join(rel);
+
+            // Use merge-restore for known file kinds to preserve user changes
+            // made while the proxy was enabled.
+            match entry.kind.as_str() {
+                "claude_settings_json" => {
+                    merge_restore_claude_settings_json(&target_path, &backup_path)?;
+                    continue;
+                }
+                "codex_auth_json" => {
+                    merge_restore_codex_auth_json(&target_path, &backup_path)?;
+                    continue;
+                }
+                "codex_config_toml" => {
+                    merge_restore_codex_config_toml(&target_path, &backup_path)?;
+                    continue;
+                }
+                "gemini_env" => {
+                    merge_restore_gemini_env(&target_path, &backup_path)?;
+                    continue;
+                }
+                _ => {}
+            }
+
+            // Fallback: full restore for unknown file kinds
             let bytes = std::fs::read(&backup_path).map_err(|e| {
                 format!(
                     "failed to read backup {} for {}: {e}",

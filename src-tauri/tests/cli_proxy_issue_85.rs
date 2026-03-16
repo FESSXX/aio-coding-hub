@@ -100,7 +100,8 @@ fn claude_proxy_disable_restores_original_settings_bytes() {
 
     std::fs::create_dir_all(settings_path.parent().expect("settings dir")).expect("create dir");
 
-    let original = br#"{
+    let original_json: Value = serde_json::from_str(
+        r#"{
   "model": "claude-opus-4",
   "env": {
     "KEEP_ME": "x",
@@ -110,10 +111,14 @@ fn claude_proxy_disable_restores_original_settings_bytes() {
   "permissions": {
     "deny": ["Bash(rm:*)"]
   }
-}
-"#
-    .to_vec();
-    std::fs::write(&settings_path, &original).expect("write settings");
+}"#,
+    )
+    .expect("parse original");
+    std::fs::write(
+        &settings_path,
+        serde_json::to_vec_pretty(&original_json).expect("serialize"),
+    )
+    .expect("write settings");
 
     let enabled = aio_coding_hub_lib::test_support::cli_proxy_set_enabled_json(
         &handle,
@@ -136,7 +141,9 @@ fn claude_proxy_disable_restores_original_settings_bytes() {
         .and_then(|v| v.as_bool())
         .unwrap_or(false));
 
-    assert_eq!(read_bytes(&settings_path), original);
+    // Compare JSON values (merge-restore may reorder keys but preserves content)
+    let restored = read_json(&settings_path);
+    assert_eq!(restored, original_json);
 }
 
 #[test]
