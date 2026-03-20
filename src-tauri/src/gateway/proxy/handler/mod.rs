@@ -954,6 +954,7 @@ pub(in crate::gateway) async fn proxy_impl(
         provider_base_url_ping_cache_ttl_seconds: runtime_settings
             .provider_base_url_ping_cache_ttl_seconds,
         verbose_provider_error: runtime_settings.verbose_provider_error,
+        enable_codex_session_id_completion: runtime_settings.enable_codex_session_id_completion,
         max_attempts_per_provider: runtime_settings.max_attempts_per_provider,
         max_providers_to_try: runtime_settings.max_providers_to_try,
         provider_cooldown_secs: runtime_settings.provider_cooldown_secs,

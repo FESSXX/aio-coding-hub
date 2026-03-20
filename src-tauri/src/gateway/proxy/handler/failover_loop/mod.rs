@@ -3,6 +3,7 @@
 mod attempt_record;
 mod claude_metadata_user_id_injection;
 mod claude_model_mapping;
+mod codex_session_id_completion;
 mod context;
 mod event_helpers;
 mod finalize;
@@ -873,6 +874,7 @@ pub(super) async fn run(mut input: RequestContext) -> Response {
         // CX2CC: translate Anthropic → OpenAI Responses API via source provider.
         let mut cx2cc_active = false;
         let mut cx2cc_source: Option<(crate::providers::ProviderForGateway, String)> = None;
+        let mut cx2cc_codex_session_id: Option<String> = None;
         if let Some(source_id) = provider.source_provider_id {
             match crate::providers::get_source_provider_for_gateway(&input.state.db, source_id) {
                 Ok((source, source_cli_key)) => {
@@ -975,6 +977,18 @@ pub(super) async fn run(mut input: RequestContext) -> Response {
                                     effective_credential = source_cred;
                                     cx2cc_active = true;
                                     cx2cc_source = Some((source.clone(), source_cli_key.clone()));
+                                    cx2cc_codex_session_id =
+                                        codex_session_id_completion::apply_if_needed(
+                                            codex_session_id_completion::ApplyCodexSessionIdCompletionInput {
+                                                ctx,
+                                                enabled: input.enable_codex_session_id_completion,
+                                                source_cli_key: &source_cli_key,
+                                                session_id: input.session_id.as_deref(),
+                                                base_headers: &input.base_headers,
+                                                upstream_body_bytes: &mut upstream_body_bytes,
+                                                strip_request_content_encoding: &mut strip_request_content_encoding,
+                                            },
+                                        );
 
                                     // Re-detect Codex ChatGPT backend using source provider.
                                     let cx2cc_is_chatgpt = is_codex_chatgpt_backend(
@@ -1321,6 +1335,10 @@ pub(super) async fn run(mut input: RequestContext) -> Response {
 
             let mut headers = input.base_headers.clone();
             ensure_cli_required_headers(&input.cli_key, &mut headers);
+            codex_session_id_completion::inject_session_headers_if_needed(
+                &mut headers,
+                cx2cc_codex_session_id.as_deref(),
+            );
 
             // Always clear all auth headers from base_headers first to prevent
             // client-sent tokens leaking to upstream (fail-closed, not fail-open).
