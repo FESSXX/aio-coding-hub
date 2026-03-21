@@ -6,6 +6,7 @@ import type { ReactElement } from "react";
 import { toast } from "sonner";
 import { createTestQueryClient } from "../../test/utils/reactQuery";
 import { setTauriRuntime } from "../../test/utils/tauriRuntime";
+import { mergeSettingsState, resetMswState } from "../../test/msw/state";
 import { HomePage } from "../HomePage";
 import { logToConsole } from "../../services/consoleLog";
 import { envConflictsCheck } from "../../services/envConflicts";
@@ -30,11 +31,16 @@ import {
 import { useUsageHourlySeriesQuery } from "../../query/usage";
 import { useProviderLimitUsageV1Query } from "../../query/providerLimitUsage";
 import { useCliProxy } from "../../hooks/useCliProxy";
+import { useHomeWorkspaceConfigs } from "../home/hooks/useHomeWorkspaceConfigs";
+import { emitBackgroundTaskVisibilityTrigger } from "../../services/backgroundTasks";
 
 vi.mock("sonner", () => ({
   toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }),
 }));
 vi.mock("../../services/consoleLog", () => ({ logToConsole: vi.fn() }));
+vi.mock("../../services/backgroundTasks", () => ({
+  emitBackgroundTaskVisibilityTrigger: vi.fn(),
+}));
 
 vi.mock("../../components/home/HomeOverviewPanel", () => ({
   HomeOverviewPanel: ({
@@ -44,11 +50,17 @@ vi.mock("../../components/home/HomeOverviewPanel", () => ({
     onRefreshUsageHeatmap,
     onRefreshRequestLogs,
     onSelectLogId,
+    devPreviewEnabled,
+    showHomeHeatmap,
+    showHomeUsage,
     openCircuits,
     onResetCircuitProvider,
   }: any) => (
     <div>
       <div>sort-loading:{String(sortModesLoading)}</div>
+      <div>dev-preview:{String(devPreviewEnabled)}</div>
+      <div>show-heatmap:{String(showHomeHeatmap)}</div>
+      <div>show-usage:{String(showHomeUsage)}</div>
       <div>open-circuits:{openCircuits.length}</div>
       <button type="button" onClick={() => onResetCircuitProvider(1)}>
         reset-1
@@ -76,6 +88,9 @@ vi.mock("../../components/home/HomeOverviewPanel", () => ({
       </button>
       <button type="button" onClick={() => onSetCliProxyEnabled("codex", true)}>
         enable-cli-proxy-codex
+      </button>
+      <button type="button" onClick={() => onSetCliProxyEnabled("codex", true)}>
+        repair-cli-proxy-codex
       </button>
       <button type="button" onClick={() => onSelectLogId(123)}>
         select-log
@@ -111,6 +126,10 @@ vi.mock("../../hooks/useCliProxy", async () => {
     await vi.importActual<typeof import("../../hooks/useCliProxy")>("../../hooks/useCliProxy");
   return { ...actual, useCliProxy: vi.fn() };
 });
+
+vi.mock("../home/hooks/useHomeWorkspaceConfigs", () => ({
+  useHomeWorkspaceConfigs: vi.fn(),
+}));
 
 vi.mock("../../services/envConflicts", async () => {
   const actual = await vi.importActual<typeof import("../../services/envConflicts")>(
@@ -220,16 +239,70 @@ function mockHomePageBaseQueries() {
     isFetching: false,
     refetch: vi.fn(),
   } as any);
+
+  vi.mocked(useHomeWorkspaceConfigs).mockReturnValue([
+    {
+      cliKey: "claude",
+      cliLabel: "Claude Code",
+      workspaceId: 1,
+      workspaceName: "默认",
+      loading: false,
+      items: [],
+    },
+    {
+      cliKey: "codex",
+      cliLabel: "Codex",
+      workspaceId: 2,
+      workspaceName: "Default",
+      loading: false,
+      items: [],
+    },
+    {
+      cliKey: "gemini",
+      cliLabel: "Gemini",
+      workspaceId: 3,
+      workspaceName: "工作区 2",
+      loading: false,
+      items: [],
+    },
+  ] as any);
 }
 
 describe("pages/HomePage", () => {
   beforeEach(() => {
+    resetMswState();
     vi.mocked(useProviderLimitUsageV1Query).mockReturnValue({
       data: null,
       isLoading: false,
       isFetching: false,
       refetch: vi.fn(),
     } as any);
+    vi.mocked(useHomeWorkspaceConfigs).mockReturnValue([
+      {
+        cliKey: "claude",
+        cliLabel: "Claude Code",
+        workspaceId: 1,
+        workspaceName: "默认",
+        loading: false,
+        items: [],
+      },
+      {
+        cliKey: "codex",
+        cliLabel: "Codex",
+        workspaceId: 2,
+        workspaceName: "Default",
+        loading: false,
+        items: [],
+      },
+      {
+        cliKey: "gemini",
+        cliLabel: "Gemini",
+        workspaceId: 3,
+        workspaceName: "工作区 2",
+        loading: false,
+        items: [],
+      },
+    ] as any);
   });
 
   it("covers circuits auto refresh, reset provider, mode switching, and refetch flows", async () => {
@@ -332,6 +405,7 @@ describe("pages/HomePage", () => {
 
     vi.mocked(useCliProxy).mockReturnValue({
       enabled: false,
+      appliedToCurrentGateway: { claude: null, codex: null, gemini: null },
       toggling: false,
       setCliProxyEnabled: vi.fn(),
     } as any);
@@ -410,6 +484,7 @@ describe("pages/HomePage", () => {
     const setCliProxyEnabled = vi.fn();
     vi.mocked(useCliProxy).mockReturnValue({
       enabled: { claude: false, codex: false, gemini: false },
+      appliedToCurrentGateway: { claude: null, codex: false, gemini: null },
       toggling: { claude: false, codex: false, gemini: false },
       setCliProxyEnabled,
     } as any);
@@ -428,6 +503,33 @@ describe("pages/HomePage", () => {
     expect(setCliProxyEnabled).toHaveBeenCalledWith("codex", true);
   });
 
+  it("emits home overview visible trigger on mount and when returning to overview tab", async () => {
+    setTauriRuntime();
+
+    const client = createTestQueryClient();
+    mockHomePageBaseQueries();
+    vi.mocked(useCliProxy).mockReturnValue({
+      enabled: { claude: false, codex: false, gemini: false },
+      appliedToCurrentGateway: { claude: null, codex: null, gemini: null },
+      toggling: { claude: false, codex: false, gemini: false },
+      setCliProxyEnabled: vi.fn(),
+    } as any);
+
+    renderWithProviders(client, <HomePage />);
+
+    await waitFor(() =>
+      expect(emitBackgroundTaskVisibilityTrigger).toHaveBeenCalledWith("home-overview-visible")
+    );
+
+    vi.mocked(emitBackgroundTaskVisibilityTrigger).mockClear();
+    fireEvent.click(screen.getByRole("tab", { name: "花费" }));
+    fireEvent.click(screen.getByRole("tab", { name: "概览" }));
+
+    await waitFor(() =>
+      expect(emitBackgroundTaskVisibilityTrigger).toHaveBeenCalledWith("home-overview-visible")
+    );
+  });
+
   it("enables CLI proxy directly when no env conflicts are found", async () => {
     setTauriRuntime();
 
@@ -438,6 +540,7 @@ describe("pages/HomePage", () => {
     const setCliProxyEnabled = vi.fn();
     vi.mocked(useCliProxy).mockReturnValue({
       enabled: { claude: false, codex: false, gemini: false },
+      appliedToCurrentGateway: { claude: null, codex: false, gemini: null },
       toggling: { claude: false, codex: false, gemini: false },
       setCliProxyEnabled,
     } as any);
@@ -491,6 +594,7 @@ describe("pages/HomePage", () => {
 
     vi.mocked(useCliProxy).mockReturnValue({
       enabled: false,
+      appliedToCurrentGateway: { claude: null, codex: null, gemini: null },
       toggling: false,
       setCliProxyEnabled: vi.fn(),
     } as any);
@@ -501,6 +605,51 @@ describe("pages/HomePage", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "更多" }));
     expect(screen.getByText("更多功能开发中…")).toBeInTheDocument();
+  });
+
+  it("toggles the unified dev preview entry and passes it to overview", () => {
+    setTauriRuntime();
+
+    const client = createTestQueryClient();
+    mockHomePageBaseQueries();
+    vi.mocked(useCliProxy).mockReturnValue({
+      enabled: { claude: false, codex: false, gemini: false },
+      appliedToCurrentGateway: { claude: null, codex: null, gemini: null },
+      toggling: { claude: false, codex: false, gemini: false },
+      setCliProxyEnabled: vi.fn(),
+    } as any);
+
+    renderWithProviders(client, <HomePage />);
+
+    expect(screen.getByText("dev-preview:false")).toBeInTheDocument();
+
+    const enableButton = screen.getByRole("button", { name: "Dev开启预览数据" });
+    fireEvent.click(enableButton);
+
+    expect(screen.getByRole("button", { name: "Dev关闭预览数据" })).toBeInTheDocument();
+    expect(screen.getByText("dev-preview:true")).toBeInTheDocument();
+  });
+
+  it("passes homepage heatmap and usage switches to overview", async () => {
+    setTauriRuntime();
+
+    const client = createTestQueryClient();
+    mockHomePageBaseQueries();
+    vi.mocked(useCliProxy).mockReturnValue({
+      enabled: { claude: false, codex: false, gemini: false },
+      appliedToCurrentGateway: { claude: null, codex: null, gemini: null },
+      toggling: { claude: false, codex: false, gemini: false },
+      setCliProxyEnabled: vi.fn(),
+    } as any);
+
+    mergeSettingsState({ show_home_heatmap: false, show_home_usage: true });
+
+    renderWithProviders(client, <HomePage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("show-heatmap:false")).toBeInTheDocument();
+      expect(screen.getByText("show-usage:true")).toBeInTheDocument();
+    });
   });
 
   it("covers pending switch dialog cancel/onOpenChange and auto refresh when open_until is null", async () => {
@@ -565,6 +714,7 @@ describe("pages/HomePage", () => {
 
     vi.mocked(useCliProxy).mockReturnValue({
       enabled: false,
+      appliedToCurrentGateway: { claude: null, codex: null, gemini: null },
       toggling: false,
       setCliProxyEnabled: vi.fn(),
     } as any);
@@ -657,6 +807,7 @@ describe("pages/HomePage", () => {
 
     vi.mocked(useCliProxy).mockReturnValue({
       enabled: false,
+      appliedToCurrentGateway: { claude: null, codex: null, gemini: null },
       toggling: false,
       setCliProxyEnabled: vi.fn(),
     } as any);
@@ -734,6 +885,7 @@ describe("pages/HomePage", () => {
 
     vi.mocked(useCliProxy).mockReturnValue({
       enabled: false,
+      appliedToCurrentGateway: { claude: null, codex: null, gemini: null },
       toggling: false,
       setCliProxyEnabled: vi.fn(),
     } as any);

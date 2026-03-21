@@ -1,22 +1,34 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { ComponentProps } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HomeOverviewPanel } from "../HomeOverviewPanel";
 
 vi.mock("../HomeUsageSection", () => ({
-  HomeUsageSection: () => <div>usage-section</div>,
+  HomeUsageSection: ({
+    showHeatmap,
+    showUsageChart = true,
+  }: {
+    showHeatmap: boolean;
+    showUsageChart?: boolean;
+  }) => <div>{`usage-section:${String(showHeatmap)}:${String(showUsageChart)}`}</div>,
 }));
 
 vi.mock("../HomeWorkStatusCard", () => ({
-  HomeWorkStatusCard: () => <div>work-status-card</div>,
+  HomeWorkStatusCard: ({ layout }: { layout: string }) => <div>{`work-status-card:${layout}`}</div>,
 }));
 
 vi.mock("../HomeActiveSessionsCard", () => ({
-  HomeActiveSessionsCardContent: () => <div>active-sessions</div>,
+  HomeActiveSessionsCardContent: ({
+    activeSessions,
+  }: {
+    activeSessions: Array<{ session_id: string }>;
+  }) => <div>active-sessions:{activeSessions.length}</div>,
 }));
 
 vi.mock("../HomeProviderLimitPanel", () => ({
-  HomeProviderLimitPanelContent: () => <div>provider-limit</div>,
+  HomeProviderLimitPanelContent: ({ rows }: { rows: Array<{ provider_id: number }> }) => (
+    <div>provider-limit:{rows.length}</div>
+  ),
 }));
 
 vi.mock("../HomeRequestLogsPanel", () => ({
@@ -25,10 +37,12 @@ vi.mock("../HomeRequestLogsPanel", () => ({
 
 function renderPanel(overrides: Partial<ComponentProps<typeof HomeOverviewPanel>> = {}) {
   const onResetCircuitProvider = vi.fn();
+  const onSetCliActiveMode = vi.fn();
   const view = render(
     <HomeOverviewPanel
       showCustomTooltip={false}
       showHomeHeatmap={true}
+      usageWindowDays={15}
       usageHeatmapRows={[]}
       usageHeatmapLoading={false}
       onRefreshUsageHeatmap={vi.fn()}
@@ -37,13 +51,42 @@ function renderPanel(overrides: Partial<ComponentProps<typeof HomeOverviewPanel>
       sortModesAvailable={true}
       activeModeByCli={{ claude: null, codex: null, gemini: null }}
       activeModeToggling={{ claude: false, codex: false, gemini: false }}
-      onSetCliActiveMode={vi.fn()}
+      onSetCliActiveMode={onSetCliActiveMode}
+      cliProxyLoading={false}
+      cliProxyAvailable={true}
       cliProxyEnabled={{ claude: false, codex: false, gemini: false }}
+      cliProxyAppliedToCurrentGateway={{ claude: null, codex: null, gemini: null }}
       cliProxyToggling={{ claude: false, codex: false, gemini: false }}
       onSetCliProxyEnabled={vi.fn()}
       activeSessions={[]}
       activeSessionsLoading={false}
       activeSessionsAvailable={true}
+      workspaceConfigs={[
+        {
+          cliKey: "claude",
+          cliLabel: "Claude Code",
+          workspaceId: 1,
+          workspaceName: "默认",
+          loading: false,
+          items: [],
+        },
+        {
+          cliKey: "codex",
+          cliLabel: "Codex",
+          workspaceId: 2,
+          workspaceName: "Default",
+          loading: false,
+          items: [],
+        },
+        {
+          cliKey: "gemini",
+          cliLabel: "Gemini",
+          workspaceId: 3,
+          workspaceName: "工作区 2",
+          loading: false,
+          items: [],
+        },
+      ]}
       providerLimitRows={[]}
       providerLimitLoading={false}
       providerLimitAvailable={true}
@@ -64,28 +107,27 @@ function renderPanel(overrides: Partial<ComponentProps<typeof HomeOverviewPanel>
     />
   );
 
-  return { ...view, onResetCircuitProvider };
+  return { ...view, onResetCircuitProvider, onSetCliActiveMode };
 }
 
 describe("components/home/HomeOverviewPanel", () => {
-  it("supports previewing circuit rows locally when there are no real open circuits", () => {
-    const { onResetCircuitProvider } = renderPanel();
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("renders preview circuit rows when dev preview is enabled and there are no real open circuits", () => {
+    const { onResetCircuitProvider } = renderPanel({ devPreviewEnabled: true });
 
     fireEvent.click(screen.getByRole("tab", { name: "熔断信息" }));
-    expect(screen.getByText("当前没有熔断中的 Provider")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "预览熔断样式" }));
     expect(screen.getByText("Claude Main")).toBeInTheDocument();
     expect(screen.getByText("Codex Fallback")).toBeInTheDocument();
     expect(screen.getByText("Gemini Mirror")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "关闭预览" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "预览熔断样式" })).not.toBeInTheDocument();
 
+    expect(screen.getAllByRole("button", { name: "解除熔断" })[0]).toBeDisabled();
     fireEvent.click(screen.getAllByRole("button", { name: "解除熔断" })[0]);
-    expect(screen.queryByText("Claude Main")).not.toBeInTheDocument();
+    expect(screen.getByText("Claude Main")).toBeInTheDocument();
     expect(onResetCircuitProvider).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: "关闭预览" }));
-    expect(screen.getByText("当前没有熔断中的 Provider")).toBeInTheDocument();
   });
 
   it("uses real circuit rows when provided and forwards reset actions", () => {
@@ -108,85 +150,190 @@ describe("components/home/HomeOverviewPanel", () => {
     expect(onResetCircuitProvider).toHaveBeenCalledWith(7);
   });
 
-  it("hides preview action when circuit preview is disabled", () => {
-    renderPanel({ circuitPreviewEnabled: false });
+  it("does not render preview circuit rows when dev preview is disabled", () => {
+    renderPanel({ devPreviewEnabled: false });
 
     fireEvent.click(screen.getByRole("tab", { name: "熔断信息" }));
     expect(screen.getByText("当前没有熔断中的 Provider")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "预览熔断样式" })).not.toBeInTheDocument();
   });
 
-  it("auto-switches to 活跃 Session when new sessions arrive", () => {
-    const { rerender } = renderPanel();
+  it("shows workspace config pills and allows switching sort mode for the selected cli", () => {
+    const { onSetCliActiveMode } = renderPanel({
+      sortModes: [{ id: 1, name: "工作策略", created_at: 1, updated_at: 1 }],
+      activeModeByCli: { claude: 1, codex: null, gemini: null },
+      workspaceConfigs: [
+        {
+          cliKey: "claude",
+          cliLabel: "Claude Code",
+          workspaceId: 1,
+          workspaceName: "工作区 A",
+          loading: false,
+          items: [
+            { id: "prompt:1", type: "prompts", label: "Prompt", name: "默认提示词" },
+            { id: "mcp:1", type: "mcp", label: "MCP", name: "filesystem" },
+          ],
+        },
+        {
+          cliKey: "codex",
+          cliLabel: "Codex",
+          workspaceId: 2,
+          workspaceName: "Default",
+          loading: false,
+          items: [{ id: "skill:1", type: "skills", label: "Skill", name: "code-review" }],
+        },
+        {
+          cliKey: "gemini",
+          cliLabel: "Gemini",
+          workspaceId: 3,
+          workspaceName: "工作区 B",
+          loading: false,
+          items: [],
+        },
+      ],
+    });
+
+    fireEvent.click(screen.getByRole("tab", { name: "配置信息" }));
+    expect(screen.getByRole("button", { name: "Claude Code" })).toBeInTheDocument();
+    expect(screen.getByText("工作区 A")).toBeInTheDocument();
+    expect(screen.getByText("路由策略：")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Claude Code 路由策略" })).toHaveValue("1");
+    expect(screen.getByRole("option", { name: "工作策略" })).toBeInTheDocument();
+    expect(screen.getByText("默认提示词")).toBeInTheDocument();
+    expect(screen.getByText("filesystem")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Codex" }));
+    expect(screen.getByRole("combobox", { name: "Codex 路由策略" })).toHaveValue("");
+    expect(screen.getByText("code-review")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Codex 路由策略" }), {
+      target: { value: "1" },
+    });
+    expect(onSetCliActiveMode).toHaveBeenCalledWith("codex", 1);
+  });
+
+  it("renders preview workspace config rows when dev preview is enabled and there is no real config data", () => {
+    renderPanel({ workspaceConfigs: [], devPreviewEnabled: true });
+
+    fireEvent.click(screen.getByRole("tab", { name: "配置信息" }));
+    expect(screen.getByRole("button", { name: "Claude Code" })).toBeInTheDocument();
+    expect(screen.getByText("工作区 Alpha")).toBeInTheDocument();
+    expect(screen.getByText("PR Review")).toBeInTheDocument();
+    expect(screen.getByText("filesystem")).toBeInTheDocument();
+  });
+
+  it("fills preview workspace items for the selected empty cli when dev preview is enabled", () => {
+    renderPanel({
+      devPreviewEnabled: true,
+      workspaceConfigs: [
+        {
+          cliKey: "claude",
+          cliLabel: "Claude Code",
+          workspaceId: 1,
+          workspaceName: "工作区 A",
+          loading: false,
+          items: [{ id: "prompt:1", type: "prompts", label: "Prompt", name: "默认提示词" }],
+        },
+        {
+          cliKey: "codex",
+          cliLabel: "Codex",
+          workspaceId: 2,
+          workspaceName: "Default",
+          loading: false,
+          items: [],
+        },
+        {
+          cliKey: "gemini",
+          cliLabel: "Gemini",
+          workspaceId: 3,
+          workspaceName: "工作区 B",
+          loading: false,
+          items: [],
+        },
+      ],
+    });
+
+    fireEvent.click(screen.getByRole("tab", { name: "配置信息" }));
+    fireEvent.click(screen.getByRole("button", { name: "Codex" }));
+
+    expect(screen.getAllByText("Default")).toHaveLength(2);
+    expect(screen.getByText("Fix First")).toBeInTheDocument();
+    expect(screen.getByText("code-review")).toBeInTheDocument();
+  });
+
+  it("renders only the horizontal proxy status card when both heatmap and usage are hidden", () => {
+    renderPanel({ showHomeHeatmap: false, showHomeUsage: false });
+
+    expect(screen.queryByText(/usage-section:/)).not.toBeInTheDocument();
+    expect(screen.getByText("work-status-card:horizontal")).toBeInTheDocument();
+  });
+
+  it("uses the split layout with usage statistics when heatmap is hidden", () => {
+    renderPanel({ showHomeHeatmap: false, showHomeUsage: true });
+
+    expect(screen.getByText("usage-section:false:true")).toBeInTheDocument();
+    expect(screen.getByText("work-status-card:vertical")).toBeInTheDocument();
+  });
+
+  it("uses the split layout with heatmap when usage statistics are hidden", () => {
+    renderPanel({ showHomeHeatmap: true, showHomeUsage: false });
+
+    expect(screen.getByText("usage-section:true:false")).toBeInTheDocument();
+    expect(screen.getByText("work-status-card:vertical")).toBeInTheDocument();
+  });
+
+  it("renders preview active sessions when dev preview is enabled and there are no real sessions", () => {
+    renderPanel({ devPreviewEnabled: true, activeSessions: [] });
+
+    fireEvent.click(screen.getByRole("tab", { name: "活跃 Session" }));
+    expect(screen.getByText("active-sessions:3")).toBeInTheDocument();
+  });
+
+  it("renders preview provider limits when dev preview is enabled and there are no real rows", () => {
+    renderPanel({ devPreviewEnabled: true, providerLimitRows: [] });
 
     fireEvent.click(screen.getByRole("tab", { name: "供应商限额" }));
-    expect(screen.getByText("provider-limit")).toBeInTheDocument();
+    expect(screen.getByText("provider-limit:3")).toBeInTheDocument();
+  });
 
-    rerender(
-      <HomeOverviewPanel
-        showCustomTooltip={false}
-        showHomeHeatmap={true}
-        usageHeatmapRows={[]}
-        usageHeatmapLoading={false}
-        onRefreshUsageHeatmap={vi.fn()}
-        sortModes={[]}
-        sortModesLoading={false}
-        sortModesAvailable={true}
-        activeModeByCli={{ claude: null, codex: null, gemini: null }}
-        activeModeToggling={{ claude: false, codex: false, gemini: false }}
-        onSetCliActiveMode={vi.fn()}
-        cliProxyEnabled={{ claude: false, codex: false, gemini: false }}
-        cliProxyToggling={{ claude: false, codex: false, gemini: false }}
-        onSetCliProxyEnabled={vi.fn()}
-        activeSessions={[
-          {
-            cli_key: "claude",
-            session_id: "sess-1",
-            session_suffix: "s1",
-            provider_id: 1,
-            provider_name: "P1",
-            expires_at: Math.floor(Date.now() / 1000) + 60,
-            request_count: 1,
-            total_input_tokens: 10,
-            total_output_tokens: 20,
-            total_cost_usd: 0.01,
-            total_duration_ms: 1000,
-          },
-        ]}
-        activeSessionsLoading={false}
-        activeSessionsAvailable={true}
-        providerLimitRows={[]}
-        providerLimitLoading={false}
-        providerLimitAvailable={true}
-        providerLimitRefreshing={false}
-        onRefreshProviderLimit={vi.fn()}
-        openCircuits={[]}
-        onResetCircuitProvider={vi.fn()}
-        resettingCircuitProviderIds={new Set()}
-        traces={[]}
-        requestLogs={[]}
-        requestLogsLoading={false}
-        requestLogsRefreshing={false}
-        requestLogsAvailable={true}
-        onRefreshRequestLogs={vi.fn()}
-        selectedLogId={null}
-        onSelectLogId={vi.fn()}
-      />
+  it("restores a persisted tab order from localStorage", () => {
+    window.localStorage.setItem(
+      "aio-home-overview-tab-order",
+      JSON.stringify(["providerLimit", "sessions", "circuit", "workspaceConfig"])
     );
 
-    expect(screen.getByText("active-sessions")).toBeInTheDocument();
+    renderPanel();
+
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+      "供应商限额",
+      "活跃 Session",
+      "熔断信息",
+      "配置信息",
+    ]);
+  });
+
+  it("uses the first sorted tab as the default selection", () => {
+    window.localStorage.setItem(
+      "aio-home-overview-tab-order",
+      JSON.stringify(["providerLimit", "sessions", "circuit", "workspaceConfig"])
+    );
+
+    renderPanel({ devPreviewEnabled: true, providerLimitRows: [] });
+
+    expect(screen.getByText("provider-limit:3")).toBeInTheDocument();
   });
 
   it("auto-switches to 熔断信息 when new open circuits arrive", () => {
     const { rerender } = renderPanel();
 
     fireEvent.click(screen.getByRole("tab", { name: "供应商限额" }));
-    expect(screen.getByText("provider-limit")).toBeInTheDocument();
+    expect(screen.getByText("provider-limit:0")).toBeInTheDocument();
 
     rerender(
       <HomeOverviewPanel
         showCustomTooltip={false}
         showHomeHeatmap={true}
+        usageWindowDays={15}
         usageHeatmapRows={[]}
         usageHeatmapLoading={false}
         onRefreshUsageHeatmap={vi.fn()}
@@ -196,12 +343,16 @@ describe("components/home/HomeOverviewPanel", () => {
         activeModeByCli={{ claude: null, codex: null, gemini: null }}
         activeModeToggling={{ claude: false, codex: false, gemini: false }}
         onSetCliActiveMode={vi.fn()}
+        cliProxyLoading={false}
+        cliProxyAvailable={true}
         cliProxyEnabled={{ claude: false, codex: false, gemini: false }}
+        cliProxyAppliedToCurrentGateway={{ claude: null, codex: null, gemini: null }}
         cliProxyToggling={{ claude: false, codex: false, gemini: false }}
         onSetCliProxyEnabled={vi.fn()}
         activeSessions={[]}
         activeSessionsLoading={false}
         activeSessionsAvailable={true}
+        workspaceConfigs={[]}
         providerLimitRows={[]}
         providerLimitLoading={false}
         providerLimitAvailable={true}
@@ -229,5 +380,66 @@ describe("components/home/HomeOverviewPanel", () => {
     );
 
     expect(screen.getByText("Claude New Circuit")).toBeInTheDocument();
+  });
+
+  it("auto-switches to 熔断信息 when open circuits are removed", () => {
+    const { rerender } = renderPanel({
+      openCircuits: [
+        {
+          cli_key: "claude",
+          provider_id: 9,
+          provider_name: "Claude New Circuit",
+          open_until: Math.floor(Date.now() / 1000) + 60,
+        },
+      ],
+    });
+
+    fireEvent.click(screen.getByRole("tab", { name: "供应商限额" }));
+    expect(screen.getByText("provider-limit:0")).toBeInTheDocument();
+
+    rerender(
+      <HomeOverviewPanel
+        showCustomTooltip={false}
+        showHomeHeatmap={true}
+        usageWindowDays={15}
+        usageHeatmapRows={[]}
+        usageHeatmapLoading={false}
+        onRefreshUsageHeatmap={vi.fn()}
+        sortModes={[]}
+        sortModesLoading={false}
+        sortModesAvailable={true}
+        activeModeByCli={{ claude: null, codex: null, gemini: null }}
+        activeModeToggling={{ claude: false, codex: false, gemini: false }}
+        onSetCliActiveMode={vi.fn()}
+        cliProxyLoading={false}
+        cliProxyAvailable={true}
+        cliProxyEnabled={{ claude: false, codex: false, gemini: false }}
+        cliProxyAppliedToCurrentGateway={{ claude: null, codex: null, gemini: null }}
+        cliProxyToggling={{ claude: false, codex: false, gemini: false }}
+        onSetCliProxyEnabled={vi.fn()}
+        activeSessions={[]}
+        activeSessionsLoading={false}
+        activeSessionsAvailable={true}
+        workspaceConfigs={[]}
+        providerLimitRows={[]}
+        providerLimitLoading={false}
+        providerLimitAvailable={true}
+        providerLimitRefreshing={false}
+        onRefreshProviderLimit={vi.fn()}
+        openCircuits={[]}
+        onResetCircuitProvider={vi.fn()}
+        resettingCircuitProviderIds={new Set()}
+        traces={[]}
+        requestLogs={[]}
+        requestLogsLoading={false}
+        requestLogsRefreshing={false}
+        requestLogsAvailable={true}
+        onRefreshRequestLogs={vi.fn()}
+        selectedLogId={null}
+        onSelectLogId={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("当前没有熔断中的 Provider")).toBeInTheDocument();
   });
 });

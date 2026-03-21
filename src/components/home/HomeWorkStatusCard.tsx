@@ -1,10 +1,8 @@
 // Usage:
-// - Render in `HomeOverviewPanel` left column to show each CLI's current workspace and proxy state.
+// - Render in `HomeOverviewPanel` left column to show each CLI's proxy state.
 
-import { Fragment } from "react";
 import { CLIS } from "../../constants/clis";
 import type { CliKey } from "../../services/providers";
-import type { SortModeSummary } from "../../services/sortModes";
 import { Button } from "../../ui/Button";
 import { Card } from "../../ui/Card";
 import { Switch } from "../../ui/Switch";
@@ -13,36 +11,25 @@ import { CliBrandIcon } from "./CliBrandIcon";
 
 export type HomeWorkStatusCardProps = {
   layout?: "vertical" | "horizontal";
-  sortModes: SortModeSummary[];
-  sortModesLoading: boolean;
-  sortModesAvailable: boolean | null;
-  activeModeByCli: Record<CliKey, number | null>;
-  activeModeToggling: Record<CliKey, boolean>;
-  onSetCliActiveMode: (cliKey: CliKey, modeId: number | null) => void;
+  cliProxyLoading: boolean;
+  cliProxyAvailable: boolean | null;
 
   cliProxyEnabled: Record<CliKey, boolean>;
+  cliProxyAppliedToCurrentGateway: Record<CliKey, boolean | null>;
   cliProxyToggling: Record<CliKey, boolean>;
   onSetCliProxyEnabled: (cliKey: CliKey, enabled: boolean) => void;
 };
 
 export function HomeWorkStatusCard({
   layout = "vertical",
-  sortModes,
-  sortModesLoading,
-  sortModesAvailable,
-  activeModeByCli,
-  activeModeToggling,
-  onSetCliActiveMode,
+  cliProxyLoading,
+  cliProxyAvailable,
   cliProxyEnabled,
+  cliProxyAppliedToCurrentGateway,
   cliProxyToggling,
   onSetCliProxyEnabled,
 }: HomeWorkStatusCardProps) {
   const horizontal = layout === "horizontal";
-
-  const options: Array<{ id: number | null; label: string }> = [
-    { id: null, label: "Default" },
-    ...sortModes.map((m) => ({ id: m.id, label: m.name })),
-  ];
 
   return (
     <Card padding="sm" className="flex h-full flex-1 flex-col">
@@ -50,9 +37,9 @@ export function HomeWorkStatusCard({
         <div className="text-sm font-semibold">代理状态</div>
       </div>
 
-      {sortModesLoading ? (
+      {cliProxyLoading ? (
         <div className="mt-2 text-sm text-slate-600 dark:text-slate-400">加载中…</div>
-      ) : sortModesAvailable === false ? (
+      ) : cliProxyAvailable === false ? (
         <div className="mt-2 text-sm text-slate-600 dark:text-slate-400">数据不可用</div>
       ) : (
         <div
@@ -62,8 +49,8 @@ export function HomeWorkStatusCard({
         >
           {CLIS.map((cli) => {
             const cliKey = cli.key as CliKey;
-            const activeModeId = activeModeByCli[cliKey] ?? null;
-            const modeDisabled = activeModeToggling[cliKey] || sortModesLoading;
+            const drifted =
+              cliProxyEnabled[cliKey] && cliProxyAppliedToCurrentGateway[cliKey] === false;
 
             return (
               <div
@@ -71,52 +58,51 @@ export function HomeWorkStatusCard({
                 className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 shadow-sm transition-all duration-200 hover:bg-slate-50 hover:border-indigo-200 hover:shadow-md dark:border-slate-700 dark:bg-slate-800 dark:shadow-none dark:hover:bg-slate-700 dark:hover:border-indigo-700"
               >
                 <div className="flex items-center justify-between gap-3">
-                  <div
-                    className={cn(
-                      "min-w-0 flex items-center gap-2 text-left text-xs font-medium text-slate-700 dark:text-slate-300",
-                      !horizontal && "flex-1"
-                    )}
-                  >
-                    <CliBrandIcon
-                      cliKey={cliKey}
-                      className="h-4 w-4 shrink-0 rounded-[4px] object-contain"
-                    />
-                    <span className="truncate">{cli.name}</span>
+                  <div className={cn("min-w-0", !horizontal && "flex-1")}>
+                    <div className="flex items-center gap-2 text-left text-xs font-medium text-slate-700 dark:text-slate-300">
+                      <CliBrandIcon
+                        cliKey={cliKey}
+                        className="h-4 w-4 shrink-0 rounded-[4px] object-contain"
+                      />
+                      <span className="truncate">{cli.name}</span>
+                    </div>
                   </div>
 
-                  <div className="flex shrink-0 items-center justify-end gap-2">
-                    <Switch
-                      checked={cliProxyEnabled[cliKey]}
-                      disabled={cliProxyToggling[cliKey]}
-                      onCheckedChange={(next) => onSetCliProxyEnabled(cliKey, next)}
-                      size="sm"
-                      aria-label={`${cli.name} 代理开关`}
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-2 flex items-center gap-1.5">
-                  <span className="shrink-0 text-xs text-slate-500 dark:text-slate-400">
-                    当前模板:
-                  </span>
-                  <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
-                    {options.map((opt, idx) => {
-                      const active = activeModeId === opt.id;
-                      const key = opt.id == null ? "default" : String(opt.id);
-                      return (
-                        <Fragment key={key}>
-                          {idx > 0 && <span className="text-slate-200 dark:text-slate-600">|</span>}
+                  <div className="flex shrink-0 flex-col items-end justify-center gap-1 text-right">
+                    {drifted ? (
+                      <>
+                        <div className="flex items-center justify-end gap-2">
                           <Button
-                            onClick={() => onSetCliActiveMode(cliKey, opt.id)}
-                            variant={active ? "primary" : "secondary"}
+                            variant="danger"
                             size="sm"
-                            disabled={modeDisabled}
+                            className="h-6 px-2 py-0 text-[11px]"
+                            disabled={cliProxyToggling[cliKey]}
+                            onClick={() => onSetCliProxyEnabled(cliKey, true)}
+                            aria-label={`修复 ${cli.name} 代理`}
                           >
-                            {opt.label}
+                            修复
                           </Button>
-                        </Fragment>
-                      );
-                    })}
+                          <Switch
+                            checked={cliProxyEnabled[cliKey]}
+                            disabled={cliProxyToggling[cliKey]}
+                            onCheckedChange={(next) => onSetCliProxyEnabled(cliKey, next)}
+                            size="sm"
+                            aria-label={`${cli.name} 代理开关`}
+                          />
+                        </div>
+                        <span className="text-[11px] font-medium leading-none text-rose-600 dark:text-rose-400">
+                          当前未指向本网关
+                        </span>
+                      </>
+                    ) : (
+                      <Switch
+                        checked={cliProxyEnabled[cliKey]}
+                        disabled={cliProxyToggling[cliKey]}
+                        onCheckedChange={(next) => onSetCliProxyEnabled(cliKey, next)}
+                        size="sm"
+                        aria-label={`${cli.name} 代理开关`}
+                      />
+                    )}
                   </div>
                 </div>
               </div>

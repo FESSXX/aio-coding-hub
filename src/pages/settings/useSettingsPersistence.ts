@@ -9,11 +9,15 @@ import {
   gatewayStop,
   type GatewayStatus,
 } from "../../services/gateway";
+import type { HomeUsagePeriod } from "../../services/settings";
 import { useSettingsQuery, useSettingsSetMutation } from "../../query/settings";
+import { DEFAULT_HOME_USAGE_PERIOD } from "../../utils/homeUsagePeriod";
 
 type PersistedSettings = {
   preferred_port: number;
   show_home_heatmap: boolean;
+  show_home_usage: boolean;
+  home_usage_period: HomeUsagePeriod;
   auto_start: boolean;
   start_minimized: boolean;
   tray_enabled: boolean;
@@ -38,6 +42,8 @@ type PersistedSettings = {
 const DEFAULT_SETTINGS: PersistedSettings = {
   preferred_port: 37123,
   show_home_heatmap: true,
+  show_home_usage: true,
+  home_usage_period: DEFAULT_HOME_USAGE_PERIOD,
   auto_start: false,
   start_minimized: false,
   tray_enabled: true,
@@ -76,6 +82,10 @@ export function useSettingsPersistence(options: {
   const [showHomeHeatmap, setShowHomeHeatmap] = useState<boolean>(
     DEFAULT_SETTINGS.show_home_heatmap
   );
+  const [showHomeUsage, setShowHomeUsage] = useState<boolean>(DEFAULT_SETTINGS.show_home_usage);
+  const [homeUsagePeriod, setHomeUsagePeriod] = useState<HomeUsagePeriod>(
+    DEFAULT_SETTINGS.home_usage_period
+  );
   const [autoStart, setAutoStart] = useState<boolean>(DEFAULT_SETTINGS.auto_start);
   const [startMinimized, setStartMinimized] = useState<boolean>(DEFAULT_SETTINGS.start_minimized);
   const [trayEnabled, setTrayEnabled] = useState<boolean>(DEFAULT_SETTINGS.tray_enabled);
@@ -111,6 +121,8 @@ export function useSettingsPersistence(options: {
     const nextSettings: PersistedSettings = {
       preferred_port: settingsValue.preferred_port,
       show_home_heatmap: settingsValue.show_home_heatmap ?? DEFAULT_SETTINGS.show_home_heatmap,
+      show_home_usage: settingsValue.show_home_usage ?? DEFAULT_SETTINGS.show_home_usage,
+      home_usage_period: settingsValue.home_usage_period ?? DEFAULT_SETTINGS.home_usage_period,
       auto_start: settingsValue.auto_start,
       start_minimized: settingsValue.start_minimized ?? DEFAULT_SETTINGS.start_minimized,
       tray_enabled: settingsValue.tray_enabled ?? DEFAULT_SETTINGS.tray_enabled,
@@ -164,6 +176,8 @@ export function useSettingsPersistence(options: {
 
     setPort(nextSettings.preferred_port);
     setShowHomeHeatmap(nextSettings.show_home_heatmap);
+    setShowHomeUsage(nextSettings.show_home_usage);
+    setHomeUsagePeriod(nextSettings.home_usage_period);
     setAutoStart(nextSettings.auto_start);
     setStartMinimized(nextSettings.start_minimized);
     setTrayEnabled(nextSettings.tray_enabled);
@@ -204,6 +218,12 @@ export function useSettingsPersistence(options: {
         return;
       case "show_home_heatmap":
         setShowHomeHeatmap(value as boolean);
+        return;
+      case "show_home_usage":
+        setShowHomeUsage(value as boolean);
+        return;
+      case "home_usage_period":
+        setHomeUsagePeriod(value as HomeUsagePeriod);
         return;
       case "start_minimized":
         setStartMinimized(value as boolean);
@@ -416,6 +436,8 @@ export function useSettingsPersistence(options: {
       const nextSettings = await settingsSetMutation.mutateAsync({
         preferredPort: desired.preferred_port,
         showHomeHeatmap: desired.show_home_heatmap,
+        showHomeUsage: desired.show_home_usage,
+        homeUsagePeriod: desired.home_usage_period,
         autoStart: desired.auto_start,
         startMinimized: desired.start_minimized,
         trayEnabled: desired.tray_enabled,
@@ -440,6 +462,8 @@ export function useSettingsPersistence(options: {
       const after: PersistedSettings = {
         preferred_port: nextSettings.preferred_port,
         show_home_heatmap: nextSettings.show_home_heatmap ?? desired.show_home_heatmap,
+        show_home_usage: nextSettings.show_home_usage ?? desired.show_home_usage,
+        home_usage_period: nextSettings.home_usage_period ?? desired.home_usage_period,
         auto_start: nextSettings.auto_start,
         start_minimized: nextSettings.start_minimized ?? desired.start_minimized,
         tray_enabled: nextSettings.tray_enabled ?? desired.tray_enabled,
@@ -586,6 +610,10 @@ export function useSettingsPersistence(options: {
     setPort,
     showHomeHeatmap,
     setShowHomeHeatmap,
+    showHomeUsage,
+    setShowHomeUsage,
+    homeUsagePeriod,
+    setHomeUsagePeriod,
     autoStart,
     setAutoStart,
     startMinimized,

@@ -17,6 +17,8 @@ describe("services/settings", () => {
     await settingsSet({
       preferredPort: 37123,
       showHomeHeatmap: false,
+      showHomeUsage: true,
+      homeUsagePeriod: "last7",
       autoStart: false,
       trayEnabled: true,
       logRetentionDays: 30,
@@ -37,6 +39,8 @@ describe("services/settings", () => {
         update: expect.objectContaining({
           preferredPort: 37123,
           showHomeHeatmap: false,
+          showHomeUsage: true,
+          homeUsagePeriod: "last7",
           autoStart: false,
         }),
       })

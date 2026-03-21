@@ -24,9 +24,13 @@ import { Dialog } from "../ui/Dialog";
 import { PageHeader } from "../ui/PageHeader";
 import { TabList } from "../ui/TabList";
 import { useTraceStore } from "../services/traceStore";
+import { emitBackgroundTaskVisibilityTrigger } from "../services/backgroundTasks";
+import { DEFAULT_HOME_USAGE_PERIOD } from "../utils/homeUsagePeriod";
+import { resolveHomeUsageWindowDays } from "../utils/homeUsagePeriod";
 import { useHomeCircuitState } from "./home/hooks/useHomeCircuitState";
 import { useHomeSortMode } from "./home/hooks/useHomeSortMode";
 import { useHomeCliProxy } from "./home/hooks/useHomeCliProxy";
+import { useHomeWorkspaceConfigs } from "./home/hooks/useHomeWorkspaceConfigs";
 
 type HomeTabKey = "overview" | "cost" | "more";
 
@@ -42,10 +46,16 @@ export function HomePage() {
   const foregroundActive = useDocumentVisibility();
   const settingsQuery = useSettingsQuery();
   const showHomeHeatmap = settingsQuery.data?.show_home_heatmap ?? true;
+  const showHomeUsage = settingsQuery.data?.show_home_usage ?? true;
+  const showOverviewUsageSection = showHomeHeatmap || showHomeUsage;
+  const homeUsagePeriod = settingsQuery.data?.home_usage_period ?? DEFAULT_HOME_USAGE_PERIOD;
+  const homeUsageWindowDays = resolveHomeUsageWindowDays(homeUsagePeriod);
+  const isDevMode = import.meta.env.DEV;
 
   const [tab, setTab] = useState<HomeTabKey>("overview");
   const tabRef = useRef(tab);
   const [selectedLogId, setSelectedLogId] = useState<number | null>(null);
+  const [devPreviewEnabled, setDevPreviewEnabled] = useState(false);
 
   // --- Delegated state hooks ---
   const circuit = useHomeCircuitState();
@@ -64,9 +74,12 @@ export function HomePage() {
 
   const sortMode = useHomeSortMode(activeSessions);
   const cliProxyState = useHomeCliProxy();
+  const workspaceConfigs = useHomeWorkspaceConfigs({ enabled: tab === "overview" });
 
   // --- Overview data queries ---
-  const usageHeatmapQuery = useUsageHourlySeriesQuery(15, { enabled: tab === "overview" });
+  const usageHeatmapQuery = useUsageHourlySeriesQuery(homeUsageWindowDays, {
+    enabled: tab === "overview" && showOverviewUsageSection,
+  });
   const usageHeatmapRows = usageHeatmapQuery.data ?? [];
   const usageHeatmapLoading = usageHeatmapQuery.isFetching;
 
@@ -118,17 +131,23 @@ export function HomePage() {
     const prev = tabRef.current;
     tabRef.current = tab;
     if (prev !== "overview" && tab === "overview") {
-      void usageHeatmapQuery.refetch();
+      emitBackgroundTaskVisibilityTrigger("home-overview-visible");
+      if (showOverviewUsageSection) {
+        void usageHeatmapQuery.refetch();
+      }
       void requestLogsQuery.refetch();
       void providerLimitQuery.refetch();
     }
-  }, [providerLimitQuery, requestLogsQuery, tab, usageHeatmapQuery]);
+  }, [providerLimitQuery, requestLogsQuery, showOverviewUsageSection, tab, usageHeatmapQuery]);
 
   useWindowForeground({
     enabled: tab === "overview",
     throttleMs: 1000,
     onForeground: () => {
-      void usageHeatmapQuery.refetch();
+      emitBackgroundTaskVisibilityTrigger("home-overview-visible");
+      if (showOverviewUsageSection) {
+        void usageHeatmapQuery.refetch();
+      }
       void requestLogsQuery.refetch();
       void providerLimitQuery.refetch();
     },
@@ -146,13 +165,30 @@ export function HomePage() {
   const { pendingSortModeSwitch } = sortMode;
   const { pendingCliProxyEnablePrompt } = cliProxyState;
 
+  useEffect(() => {
+    if (tab === "overview") {
+      emitBackgroundTaskVisibilityTrigger("home-overview-visible");
+    }
+  }, [tab]);
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="shrink-0 mb-5">
         <PageHeader
           title="首页"
           actions={
-            <TabList ariaLabel="首页视图切换" items={HOME_TABS} value={tab} onChange={setTab} />
+            <>
+              {isDevMode ? (
+                <Button
+                  variant={devPreviewEnabled ? "primary" : "secondary"}
+                  size="md"
+                  onClick={() => setDevPreviewEnabled((prev) => !prev)}
+                >
+                  {devPreviewEnabled ? "Dev关闭预览数据" : "Dev开启预览数据"}
+                </Button>
+              ) : null}
+              <TabList ariaLabel="首页视图切换" items={HOME_TABS} value={tab} onChange={setTab} />
+            </>
           }
         />
       </div>
@@ -161,7 +197,10 @@ export function HomePage() {
         {tab === "overview" ? (
           <HomeOverviewPanel
             showCustomTooltip={showCustomTooltip}
+            devPreviewEnabled={devPreviewEnabled}
             showHomeHeatmap={showHomeHeatmap}
+            showHomeUsage={showHomeUsage}
+            usageWindowDays={homeUsageWindowDays}
             usageHeatmapRows={usageHeatmapRows}
             usageHeatmapLoading={usageHeatmapLoading}
             onRefreshUsageHeatmap={refreshUsageHeatmap}
@@ -171,12 +210,16 @@ export function HomePage() {
             activeModeByCli={sortMode.activeModeByCli}
             activeModeToggling={sortMode.activeModeToggling}
             onSetCliActiveMode={sortMode.requestCliActiveModeSwitch}
+            cliProxyLoading={cliProxyState.cliProxyLoading}
+            cliProxyAvailable={cliProxyState.cliProxyAvailable}
             cliProxyEnabled={cliProxyState.cliProxyEnabled}
+            cliProxyAppliedToCurrentGateway={cliProxyState.cliProxyAppliedToCurrentGateway}
             cliProxyToggling={cliProxyState.cliProxyToggling}
             onSetCliProxyEnabled={cliProxyState.requestCliProxyEnabledSwitch}
             activeSessions={activeSessions}
             activeSessionsLoading={activeSessionsLoading}
             activeSessionsAvailable={activeSessionsAvailable}
+            workspaceConfigs={workspaceConfigs}
             providerLimitRows={providerLimitRows}
             providerLimitLoading={providerLimitLoading}
             providerLimitAvailable={providerLimitAvailable}
