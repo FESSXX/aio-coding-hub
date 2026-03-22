@@ -1,3 +1,5 @@
+import { listen } from "@tauri-apps/api/event";
+
 import { logToConsole } from "./consoleLog";
 
 export const gatewayEventNames = {
@@ -26,13 +28,6 @@ type Entry = {
 };
 
 const entries = new Map<GatewayEventName, Entry>();
-let eventApiPromise: Promise<typeof import("@tauri-apps/api/event")> | null = null;
-
-function loadEventApi() {
-  if (eventApiPromise) return eventApiPromise;
-  eventApiPromise = import("@tauri-apps/api/event");
-  return eventApiPromise;
-}
 
 function dispatchHandlers(handlers: Set<Handler>, payload: unknown) {
   for (const handler of handlers) handler(payload);
@@ -62,12 +57,9 @@ function disposeEntry(event: GatewayEventName, entry: Entry) {
 function ensureListening(event: GatewayEventName, entry: Entry): Promise<void> {
   if (entry.init) return entry.init;
 
-  entry.init = loadEventApi()
-    .then(({ listen }) =>
-      listen(event, (evt) => {
-        dispatchHandlers(entry.handlers, evt.payload);
-      })
-    )
+  entry.init = listen(event, (evt) => {
+    dispatchHandlers(entry.handlers, evt.payload);
+  })
     .then((unlisten) => {
       entry.unlisten = unlisten;
       if (entry.disposed || entry.handlers.size === 0) disposeEntry(event, entry);

@@ -7,6 +7,7 @@
  * 参考：https://github.com/ZekerTop/ai-cli-complete-notify
  */
 
+import { listen } from "@tauri-apps/api/event";
 import { useSyncExternalStore } from "react";
 import { logToConsole } from "./consoleLog";
 import { noticeSend } from "./notice";
@@ -247,8 +248,6 @@ async function maybeNotify(cliKey: string) {
 // ---------------------------------------------------------------------------
 
 export async function listenTaskCompleteNotifyEvents(): Promise<() => void> {
-  const { listen } = await import("@tauri-apps/api/event");
-
   const unlistenRequestStart = await listen<GatewayRequestStartEvent>(
     "gateway:request_start",
     (event) => {

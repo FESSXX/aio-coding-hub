@@ -17,7 +17,6 @@ const ICON_BY_TYPE: Record<HomeWorkspaceConfigItemType, LucideIcon> = {
   mcp: Command,
   skills: Cpu,
 };
-
 export type HomeWorkspaceConfigPanelProps = {
   configs: HomeCliWorkspaceConfig[];
   selectedCliKey: CliKey;

@@ -158,7 +158,7 @@ describe("components/home/HomeOverviewPanel", () => {
     expect(screen.queryByRole("button", { name: "预览熔断样式" })).not.toBeInTheDocument();
   });
 
-  it("shows workspace config pills and allows switching sort mode for the selected cli", () => {
+  it("shows workspace config pills and allows switching sort mode for the selected cli", async () => {
     const { onSetCliActiveMode } = renderPanel({
       sortModes: [{ id: 1, name: "工作策略", created_at: 1, updated_at: 1 }],
       activeModeByCli: { claude: 1, codex: null, gemini: null },
@@ -194,7 +194,7 @@ describe("components/home/HomeOverviewPanel", () => {
     });
 
     fireEvent.click(screen.getByRole("tab", { name: "配置信息" }));
-    expect(screen.getByRole("button", { name: "Claude Code" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Claude Code" })).toBeInTheDocument();
     expect(screen.getByText("工作区 A")).toBeInTheDocument();
     expect(screen.getByText("路由策略：")).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Claude Code 路由策略" })).toHaveValue("1");
@@ -212,17 +212,17 @@ describe("components/home/HomeOverviewPanel", () => {
     expect(onSetCliActiveMode).toHaveBeenCalledWith("codex", 1);
   });
 
-  it("renders preview workspace config rows when dev preview is enabled and there is no real config data", () => {
+  it("renders preview workspace config rows when dev preview is enabled and there is no real config data", async () => {
     renderPanel({ workspaceConfigs: [], devPreviewEnabled: true });
 
     fireEvent.click(screen.getByRole("tab", { name: "配置信息" }));
-    expect(screen.getByRole("button", { name: "Claude Code" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Claude Code" })).toBeInTheDocument();
     expect(screen.getByText("工作区 Alpha")).toBeInTheDocument();
     expect(screen.getByText("PR Review")).toBeInTheDocument();
     expect(screen.getByText("filesystem")).toBeInTheDocument();
   });
 
-  it("fills preview workspace items for the selected empty cli when dev preview is enabled", () => {
+  it("fills preview workspace items for the selected empty cli when dev preview is enabled", async () => {
     renderPanel({
       devPreviewEnabled: true,
       workspaceConfigs: [
@@ -254,7 +254,7 @@ describe("components/home/HomeOverviewPanel", () => {
     });
 
     fireEvent.click(screen.getByRole("tab", { name: "配置信息" }));
-    fireEvent.click(screen.getByRole("button", { name: "Codex" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Codex" }));
 
     expect(screen.getAllByText("Default")).toHaveLength(2);
     expect(screen.getByText("Fix First")).toBeInTheDocument();
@@ -282,18 +282,18 @@ describe("components/home/HomeOverviewPanel", () => {
     expect(screen.getByText("work-status-card:vertical")).toBeInTheDocument();
   });
 
-  it("renders preview active sessions when dev preview is enabled and there are no real sessions", () => {
+  it("renders preview active sessions when dev preview is enabled and there are no real sessions", async () => {
     renderPanel({ devPreviewEnabled: true, activeSessions: [] });
 
     fireEvent.click(screen.getByRole("tab", { name: "活跃 Session" }));
-    expect(screen.getByText("active-sessions:3")).toBeInTheDocument();
+    expect(await screen.findByText("active-sessions:3")).toBeInTheDocument();
   });
 
-  it("renders preview provider limits when dev preview is enabled and there are no real rows", () => {
+  it("renders preview provider limits when dev preview is enabled and there are no real rows", async () => {
     renderPanel({ devPreviewEnabled: true, providerLimitRows: [] });
 
     fireEvent.click(screen.getByRole("tab", { name: "供应商限额" }));
-    expect(screen.getByText("provider-limit:3")).toBeInTheDocument();
+    expect(await screen.findByText("provider-limit:3")).toBeInTheDocument();
   });
 
   it("restores a persisted tab order from localStorage", () => {
@@ -312,7 +312,7 @@ describe("components/home/HomeOverviewPanel", () => {
     ]);
   });
 
-  it("uses the first sorted tab as the default selection", () => {
+  it("uses the first sorted tab as the default selection", async () => {
     window.localStorage.setItem(
       "aio-home-overview-tab-order",
       JSON.stringify(["providerLimit", "sessions", "circuit", "workspaceConfig"])
@@ -320,7 +320,7 @@ describe("components/home/HomeOverviewPanel", () => {
 
     renderPanel({ devPreviewEnabled: true, providerLimitRows: [] });
 
-    expect(screen.getByText("provider-limit:3")).toBeInTheDocument();
+    expect(await screen.findByText("provider-limit:3")).toBeInTheDocument();
   });
 
   it("auto-switches to 熔断信息 when new open circuits arrive", () => {

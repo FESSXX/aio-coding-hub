@@ -6,6 +6,8 @@
  * - 权限请求由 Settings 页面负责；此监听器仅在已授权时发送通知
  */
 
+import { listen } from "@tauri-apps/api/event";
+
 import { logToConsole } from "./consoleLog";
 import type { NoticeLevel } from "./notice";
 
@@ -16,10 +18,7 @@ export type NoticeEventPayload = {
 };
 
 export async function listenNoticeEvents(): Promise<() => void> {
-  const [{ listen }, { isPermissionGranted, sendNotification }] = await Promise.all([
-    import("@tauri-apps/api/event"),
-    import("@tauri-apps/plugin-notification"),
-  ]);
+  const { isPermissionGranted, sendNotification } = await import("@tauri-apps/plugin-notification");
 
   const unlisten = await listen<NoticeEventPayload>("notice:notify", async (event) => {
     const payload = event.payload;

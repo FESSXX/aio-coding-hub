@@ -1,18 +1,14 @@
 // Usage: Dashboard / overview page. Backend commands: `request_logs_*`, `request_attempt_logs_*`, `usage_*`, `gateway_*`, `providers_*`, `sort_modes_*`, `provider_limit_usage_*`.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { CLIS } from "../constants/clis";
-import { HomeCostPanel } from "../components/home/HomeCostPanel";
 import { HomeOverviewPanel } from "../components/home/HomeOverviewPanel";
-import { RequestLogDetailDialog } from "../components/home/RequestLogDetailDialog";
 import { useDocumentVisibility } from "../hooks/useDocumentVisibility";
 import { useWindowForeground } from "../hooks/useWindowForeground";
 import { useGatewaySessionsListQuery } from "../query/gateway";
 import { useProviderLimitUsageV1Query } from "../query/providerLimitUsage";
 import {
-  useRequestAttemptLogsByTraceIdQuery,
-  useRequestLogDetailQuery,
   useRequestLogsIncrementalPollQuery,
   useRequestLogsListAllQuery,
 } from "../query/requestLogs";
@@ -22,6 +18,7 @@ import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { Dialog } from "../ui/Dialog";
 import { PageHeader } from "../ui/PageHeader";
+import { Spinner } from "../ui/Spinner";
 import { TabList } from "../ui/TabList";
 import { useTraceStore } from "../services/traceStore";
 import { emitBackgroundTaskVisibilityTrigger } from "../services/backgroundTasks";
@@ -39,6 +36,16 @@ const HOME_TABS: Array<{ key: HomeTabKey; label: string }> = [
   { key: "cost", label: "花费" },
   { key: "more", label: "更多" },
 ];
+
+const LazyHomeCostPanel = lazy(() =>
+  import("../components/home/HomeCostPanel").then((m) => ({ default: m.HomeCostPanel }))
+);
+
+const LazyRequestLogDetailDialog = lazy(() =>
+  import("../components/home/RequestLogDetailDialog").then((m) => ({
+    default: m.RequestLogDetailDialog,
+  }))
+);
 
 export function HomePage() {
   const { traces } = useTraceStore();
@@ -153,15 +160,6 @@ export function HomePage() {
     },
   });
 
-  // --- Selected log detail ---
-  const selectedLogQuery = useRequestLogDetailQuery(selectedLogId);
-  const selectedLog = selectedLogQuery.data ?? null;
-  const selectedLogLoading = selectedLogQuery.isFetching;
-
-  const attemptLogsQuery = useRequestAttemptLogsByTraceIdQuery(selectedLog?.trace_id ?? null, 50);
-  const attemptLogs = attemptLogsQuery.data ?? [];
-  const attemptLogsLoading = attemptLogsQuery.isFetching;
-
   const { pendingSortModeSwitch } = sortMode;
   const { pendingCliProxyEnablePrompt } = cliProxyState;
 
@@ -238,7 +236,18 @@ export function HomePage() {
             onSelectLogId={setSelectedLogId}
           />
         ) : tab === "cost" ? (
-          <HomeCostPanel />
+          <Suspense
+            fallback={
+              <Card padding="md" className="flex h-full items-center justify-center">
+                <div className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-400">
+                  <Spinner />
+                  <span>加载花费面板中…</span>
+                </div>
+              </Card>
+            }
+          >
+            <LazyHomeCostPanel />
+          </Suspense>
         ) : (
           <Card padding="md">
             <div className="text-sm text-slate-600 dark:text-slate-400">更多功能开发中…</div>
@@ -326,14 +335,31 @@ export function HomePage() {
         ) : null}
       </Dialog>
 
-      <RequestLogDetailDialog
-        selectedLogId={selectedLogId}
-        onSelectLogId={setSelectedLogId}
-        selectedLog={selectedLog}
-        selectedLogLoading={selectedLogLoading}
-        attemptLogs={attemptLogs}
-        attemptLogsLoading={attemptLogsLoading}
-      />
+      {selectedLogId != null ? (
+        <Suspense
+          fallback={
+            <Dialog
+              open
+              onOpenChange={(open) => {
+                if (!open) setSelectedLogId(null);
+              }}
+              title="代理记录详情"
+              description="先看关键指标，再看为什么会重试、跳过或切换供应商。"
+              className="max-w-3xl"
+            >
+              <div className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-400">
+                <Spinner />
+                <span>加载代理记录详情中…</span>
+              </div>
+            </Dialog>
+          }
+        >
+          <LazyRequestLogDetailDialog
+            selectedLogId={selectedLogId}
+            onSelectLogId={setSelectedLogId}
+          />
+        </Suspense>
+      ) : null}
     </div>
   );
 }

@@ -1,7 +1,25 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { RequestLogDetail } from "../../../services/requestLogs";
+import type { RequestAttemptLog, RequestLogDetail } from "../../../services/requestLogs";
 import { RequestLogDetailDialog } from "../RequestLogDetailDialog";
+
+const requestLogQueryState = vi.hoisted(() => ({
+  selectedLog: null as RequestLogDetail | null,
+  selectedLogLoading: false,
+  attemptLogs: [] as RequestAttemptLog[],
+  attemptLogsLoading: false,
+}));
+
+vi.mock("../../../query/requestLogs", () => ({
+  useRequestLogDetailQuery: () => ({
+    data: requestLogQueryState.selectedLog,
+    isFetching: requestLogQueryState.selectedLogLoading,
+  }),
+  useRequestAttemptLogsByTraceIdQuery: () => ({
+    data: requestLogQueryState.attemptLogs,
+    isFetching: requestLogQueryState.attemptLogsLoading,
+  }),
+}));
 
 function createSelectedLog(overrides: Partial<RequestLogDetail> = {}): RequestLogDetail {
   return {
@@ -39,20 +57,19 @@ function createSelectedLog(overrides: Partial<RequestLogDetail> = {}): RequestLo
   };
 }
 
+function setRequestLogQueryState(overrides: Partial<typeof requestLogQueryState> = {}) {
+  requestLogQueryState.selectedLog = overrides.selectedLog ?? null;
+  requestLogQueryState.selectedLogLoading = overrides.selectedLogLoading ?? false;
+  requestLogQueryState.attemptLogs = overrides.attemptLogs ?? [];
+  requestLogQueryState.attemptLogsLoading = overrides.attemptLogsLoading ?? false;
+}
+
 describe("home/RequestLogDetailDialog", () => {
   it("renders loading state and closes via dialog close button", async () => {
     const onSelectLogId = vi.fn();
+    setRequestLogQueryState({ selectedLogLoading: true });
 
-    render(
-      <RequestLogDetailDialog
-        selectedLogId={1}
-        onSelectLogId={onSelectLogId}
-        selectedLog={null}
-        selectedLogLoading={true}
-        attemptLogs={[]}
-        attemptLogsLoading={false}
-      />
-    );
+    render(<RequestLogDetailDialog selectedLogId={1} onSelectLogId={onSelectLogId} />);
 
     expect(screen.getByText("加载中…")).toBeInTheDocument();
 
@@ -63,18 +80,11 @@ describe("home/RequestLogDetailDialog", () => {
   });
 
   it("renders metrics first and hides raw trace/query details", () => {
-    render(
-      <RequestLogDetailDialog
-        selectedLogId={1}
-        onSelectLogId={vi.fn()}
-        selectedLog={createSelectedLog()}
-        selectedLogLoading={false}
-        attemptLogs={[]}
-        attemptLogsLoading={false}
-      />
-    );
+    setRequestLogQueryState({ selectedLog: createSelectedLog() });
 
-    expect(screen.getByText("日志详情")).toBeInTheDocument();
+    render(<RequestLogDetailDialog selectedLogId={1} onSelectLogId={vi.fn()} />);
+
+    expect(screen.getByText("代理记录详情")).toBeInTheDocument();
     expect(screen.getByText("关键指标")).toBeInTheDocument();
     expect(screen.getByText("输入 Token")).toBeInTheDocument();
     expect(screen.getByText("输出 Token")).toBeInTheDocument();
@@ -91,16 +101,9 @@ describe("home/RequestLogDetailDialog", () => {
   });
 
   it("falls back to raw usage_json when JSON parsing fails without rendering raw json section", () => {
-    render(
-      <RequestLogDetailDialog
-        selectedLogId={1}
-        onSelectLogId={vi.fn()}
-        selectedLog={createSelectedLog({ usage_json: "not-json" })}
-        selectedLogLoading={false}
-        attemptLogs={[]}
-        attemptLogsLoading={false}
-      />
-    );
+    setRequestLogQueryState({ selectedLog: createSelectedLog({ usage_json: "not-json" }) });
+
+    render(<RequestLogDetailDialog selectedLogId={1} onSelectLogId={vi.fn()} />);
 
     expect(screen.queryByText("not-json")).not.toBeInTheDocument();
     expect(screen.getByText("关键指标")).toBeInTheDocument();

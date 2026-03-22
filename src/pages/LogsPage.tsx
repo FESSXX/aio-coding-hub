@@ -1,5 +1,5 @@
 // Usage:
-// - Entry: Home "日志" button -> `/#/logs`.
+// - Entry: Home "代理记录" button -> `/#/logs`.
 // - Backend commands: `request_logs_list_all`, `request_logs_list_after_id_all`, `request_log_get`, `request_attempt_logs_by_trace_id`.
 
 import { useMemo, useState } from "react";
@@ -8,14 +8,13 @@ import { RequestLogDetailDialog } from "../components/home/RequestLogDetailDialo
 import { CLI_FILTER_ITEMS, type CliFilterKey } from "../constants/clis";
 import { GatewayErrorCodes } from "../constants/gatewayErrorCodes";
 import { useDocumentVisibility } from "../hooks/useDocumentVisibility";
+import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { Input } from "../ui/Input";
 import { PageHeader } from "../ui/PageHeader";
 import { Switch } from "../ui/Switch";
 import { TabList } from "../ui/TabList";
 import {
-  useRequestAttemptLogsByTraceIdQuery,
-  useRequestLogDetailQuery,
   useRequestLogsIncrementalPollQuery,
   useRequestLogsListAllQuery,
 } from "../query/requestLogs";
@@ -95,6 +94,12 @@ export function LogsPage() {
 
   const statusPredicate = useMemo(() => buildStatusPredicate(statusFilter), [statusFilter]);
   const statusFilterValid = statusFilter.trim().length === 0 || statusPredicate != null;
+  const activeFilterCount = [
+    cliKey !== "all",
+    statusFilter.trim().length > 0,
+    errorCodeFilter.trim().length > 0,
+    pathFilter.trim().length > 0,
+  ].filter(Boolean).length;
 
   const filteredLogs = useMemo(() => {
     const errorNeedle = errorCodeFilter.trim().toLowerCase();
@@ -114,20 +119,30 @@ export function LogsPage() {
       return true;
     });
   }, [cliKey, errorCodeFilter, pathFilter, requestLogs, statusPredicate]);
+  const logsSummaryText =
+    requestLogsAvailable === false
+      ? undefined
+      : requestLogs.length === 0 && requestLogsLoading
+        ? "加载中…"
+        : requestLogsRefreshing
+          ? `更新中… · 共 ${filteredLogs.length} / ${requestLogs.length} 条`
+          : `共 ${filteredLogs.length} / ${requestLogs.length} 条`;
 
-  const selectedLogQuery = useRequestLogDetailQuery(selectedLogId);
-  const selectedLog = selectedLogQuery.data ?? null;
-  const selectedLogLoading = selectedLogQuery.isFetching;
-
-  const attemptLogsQuery = useRequestAttemptLogsByTraceIdQuery(selectedLog?.trace_id ?? null, 50);
-  const attemptLogs = attemptLogsQuery.data ?? [];
-  const attemptLogsLoading = attemptLogsQuery.isFetching;
+  function resetFilters() {
+    setCliKey("all");
+    setStatusFilter("");
+    setErrorCodeFilter("");
+    setPathFilter("");
+  }
 
   return (
     <div className="flex h-full flex-col gap-6 overflow-hidden">
-      <PageHeader
-        title="日志"
-        actions={
+      <PageHeader title="代理记录" />
+
+      <Card padding="md" className="overflow-visible flex flex-col gap-6 pb-7">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">筛选条件</div>
+
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
               <span>自动刷新</span>
@@ -138,70 +153,83 @@ export function LogsPage() {
                 disabled={requestLogsAvailable === false}
               />
             </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={resetFilters}
+              disabled={activeFilterCount === 0}
+            >
+              清空筛选
+            </Button>
           </div>
-        }
-      />
+        </div>
 
-      <Card padding="md" className="flex flex-col gap-4">
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="text-sm font-semibold">筛选</div>
-            <div className="text-xs text-slate-500 dark:text-slate-400">
-              {filteredLogs.length} / {requestLogs.length}
+        <div className="grid items-start gap-5 md:grid-cols-2 xl:grid-cols-[1.35fr_1fr_1fr_1fr]">
+          <div className="space-y-2">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              CLI
+            </div>
+            <TabList
+              ariaLabel="CLI 过滤"
+              items={CLI_FILTER_ITEMS}
+              value={cliKey}
+              onChange={setCliKey}
+              size="sm"
+              className="w-full"
+              buttonClassName="shrink-0 px-3 py-1.5 whitespace-nowrap"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Status
+            </div>
+            <Input
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              placeholder="例：499 / 524 / !200 / >=400"
+              mono
+              disabled={requestLogsAvailable === false}
+            />
+            <div className="text-[11px] leading-4 text-slate-500 dark:text-slate-400">
+              支持 `499`、`!200`、`&gt;=400`、`&lt;=399`
+            </div>
+            {!statusFilterValid ? (
+              <div className="text-[11px] leading-4 text-rose-600 dark:text-rose-400">
+                表达式不合法：支持 499 / !200 / &gt;=400 / &lt;=399
+              </div>
+            ) : null}
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              error_code
+            </div>
+            <Input
+              value={errorCodeFilter}
+              onChange={(e) => setErrorCodeFilter(e.target.value)}
+              placeholder={`例：${GatewayErrorCodes.UPSTREAM_TIMEOUT}`}
+              mono
+              disabled={requestLogsAvailable === false}
+            />
+            <div className="text-[11px] leading-4 text-slate-500 dark:text-slate-400">
+              支持按错误码关键字模糊匹配
             </div>
           </div>
 
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="text-xs font-medium text-slate-600 dark:text-slate-400 w-16">CLI</div>
-              <TabList
-                ariaLabel="CLI 过滤"
-                items={CLI_FILTER_ITEMS}
-                value={cliKey}
-                onChange={setCliKey}
-                size="sm"
-                buttonClassName="px-3 py-1.5"
-              />
+          <div className="space-y-2">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Path
             </div>
-
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <div className="flex flex-col gap-1">
-                <div className="text-xs font-medium text-slate-600 dark:text-slate-400">Status</div>
-                <Input
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  placeholder="例：499 / 524 / !200 / >=400"
-                  mono
-                  disabled={requestLogsAvailable === false}
-                />
-                {!statusFilterValid && (
-                  <div className="text-[11px] leading-4 text-rose-600 dark:text-rose-400">
-                    表达式不合法：支持 499 / !200 / &gt;=400 / &lt;=399
-                  </div>
-                )}
-              </div>
-              <div className="flex flex-col gap-1">
-                <div className="text-xs font-medium text-slate-600 dark:text-slate-400">
-                  error_code
-                </div>
-                <Input
-                  value={errorCodeFilter}
-                  onChange={(e) => setErrorCodeFilter(e.target.value)}
-                  placeholder={`例：${GatewayErrorCodes.UPSTREAM_TIMEOUT}`}
-                  mono
-                  disabled={requestLogsAvailable === false}
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <div className="text-xs font-medium text-slate-600 dark:text-slate-400">Path</div>
-                <Input
-                  value={pathFilter}
-                  onChange={(e) => setPathFilter(e.target.value)}
-                  placeholder="例：/v1/messages"
-                  mono
-                  disabled={requestLogsAvailable === false}
-                />
-              </div>
+            <Input
+              value={pathFilter}
+              onChange={(e) => setPathFilter(e.target.value)}
+              placeholder="例：/v1/messages"
+              mono
+              disabled={requestLogsAvailable === false}
+            />
+            <div className="text-[11px] leading-4 text-slate-500 dark:text-slate-400">
+              按请求路径或方法路径组合模糊匹配
             </div>
           </div>
         </div>
@@ -209,8 +237,12 @@ export function LogsPage() {
 
       <HomeRequestLogsPanel
         showCustomTooltip={showCustomTooltip}
-        title="日志列表"
+        title="代理记录列表"
+        summaryTextOverride={logsSummaryText}
         showOpenLogsPageButton={false}
+        showCompactModeToggle={false}
+        compactModeOverride={false}
+        emptyStateTitle={activeFilterCount > 0 ? "没有符合筛选条件的代理记录" : "当前没有代理记录"}
         traces={[]}
         requestLogs={filteredLogs}
         requestLogsLoading={requestLogsLoading}
@@ -221,14 +253,7 @@ export function LogsPage() {
         onSelectLogId={setSelectedLogId}
       />
 
-      <RequestLogDetailDialog
-        selectedLogId={selectedLogId}
-        onSelectLogId={setSelectedLogId}
-        selectedLog={selectedLog}
-        selectedLogLoading={selectedLogLoading}
-        attemptLogs={attemptLogs}
-        attemptLogsLoading={attemptLogsLoading}
-      />
+      <RequestLogDetailDialog selectedLogId={selectedLogId} onSelectLogId={setSelectedLogId} />
     </div>
   );
 }

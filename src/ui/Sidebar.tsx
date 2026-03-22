@@ -5,6 +5,7 @@ import {
   Boxes,
   Command,
   Cpu,
+  FileText,
   Layers,
   MessageSquare,
   Pencil,
@@ -34,6 +35,7 @@ const NAV: NavItem[] = [
   { to: "/skills", label: "Skill", icon: Cpu },
   { to: "/usage", label: "用量", icon: TrendingDown },
   { to: "/console", label: "控制台", icon: Terminal },
+  { to: "/logs", label: "代理记录", icon: FileText },
   { to: "/cli-manager", label: "CLI 管理", icon: Wrench },
   { to: "/settings", label: "设置", icon: Settings2 },
 ];

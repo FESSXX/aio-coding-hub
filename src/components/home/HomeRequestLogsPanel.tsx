@@ -395,7 +395,12 @@ const RequestLogCard = memo(function RequestLogCard({
 export type HomeRequestLogsPanelProps = {
   showCustomTooltip: boolean;
   title?: string;
+  showSummaryText?: boolean;
+  summaryTextOverride?: string;
   showOpenLogsPageButton?: boolean;
+  showCompactModeToggle?: boolean;
+  compactModeOverride?: boolean;
+  emptyStateTitle?: string;
   devPreviewEnabled?: boolean;
 
   traces: TraceSession[];
@@ -413,7 +418,12 @@ export type HomeRequestLogsPanelProps = {
 export function HomeRequestLogsPanel({
   showCustomTooltip,
   title,
+  showSummaryText = true,
+  summaryTextOverride,
   showOpenLogsPageButton = true,
+  showCompactModeToggle = true,
+  compactModeOverride,
+  emptyStateTitle = "当前没有最近使用记录",
   devPreviewEnabled = false,
   traces,
   requestLogs,
@@ -441,6 +451,7 @@ export function HomeRequestLogsPanel({
       // ignore
     }
   };
+  const effectiveCompactMode = compactModeOverride ?? compactMode;
   const previewTraces = useMemo(
     () => (devPreviewEnabled && traces.length === 0 ? buildPreviewTraces() : []),
     [devPreviewEnabled, traces.length]
@@ -451,6 +462,15 @@ export function HomeRequestLogsPanel({
   );
   const displayedTraces = traces.length > 0 ? traces : previewTraces;
   const displayedRequestLogs = requestLogs.length > 0 ? requestLogs : previewRequestLogs;
+  const summaryText =
+    summaryTextOverride ??
+    (requestLogsAvailable === false
+      ? "数据不可用"
+      : displayedRequestLogs.length === 0 && requestLogsLoading
+        ? "加载中…"
+        : requestLogsLoading || requestLogsRefreshing
+          ? `更新中… · 共 ${displayedRequestLogs.length} 条`
+          : `共 ${displayedRequestLogs.length} 条`);
   const realtimeTraceCandidates = useMemo(() => {
     const logsByTraceId = new Map<string, RequestLogSummary>();
     for (const log of displayedRequestLogs) {
@@ -471,19 +491,13 @@ export function HomeRequestLogsPanel({
     <Card padding="sm" className="flex flex-col gap-3 lg:col-span-7 h-full">
       <div className="flex flex-wrap items-center justify-between gap-3 shrink-0">
         <div className="flex flex-wrap items-center gap-2">
-          <div className="text-sm font-semibold">{title ?? "使用记录（最近 50 条）"}</div>
+          <div className="text-sm font-semibold">{title ?? "最近代理记录"}</div>
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="text-xs text-slate-500 dark:text-slate-400">
-            {requestLogsAvailable === false
-              ? "数据不可用"
-              : displayedRequestLogs.length === 0 && requestLogsLoading
-                ? "加载中…"
-                : requestLogsLoading || requestLogsRefreshing
-                  ? `更新中… · 共 ${displayedRequestLogs.length} 条`
-                  : `共 ${displayedRequestLogs.length} 条`}
-          </div>
+          {showSummaryText ? (
+            <div className="text-xs text-slate-500 dark:text-slate-400">{summaryText}</div>
+          ) : null}
           {showOpenLogsPageButton && (
             <Button
               onClick={() => navigate("/logs")}
@@ -491,9 +505,9 @@ export function HomeRequestLogsPanel({
               size="sm"
               className="h-8 gap-1 px-2 text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400"
               disabled={requestLogsAvailable === false}
-              title="打开日志页"
+              title="打开代理记录页"
             >
-              日志
+              代理记录
               <ArrowUpRight className="h-3.5 w-3.5" />
             </Button>
           )}
@@ -512,15 +526,17 @@ export function HomeRequestLogsPanel({
               )}
             />
           </Button>
-          <div className="flex items-center gap-1.5 pl-1">
-            <span className="text-xs text-slate-500 dark:text-slate-400">简洁模式</span>
-            <Switch
-              checked={compactMode}
-              onCheckedChange={handleCompactModeChange}
-              size="sm"
-              aria-label="最近使用记录简洁模式"
-            />
-          </div>
+          {showCompactModeToggle ? (
+            <div className="flex items-center gap-1.5 pl-1">
+              <span className="text-xs text-slate-500 dark:text-slate-400">简洁模式</span>
+              <Switch
+                checked={effectiveCompactMode}
+                onCheckedChange={handleCompactModeChange}
+                size="sm"
+                aria-label="最近使用记录简洁模式"
+              />
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -529,10 +545,11 @@ export function HomeRequestLogsPanel({
           realtimeTraceCandidates={realtimeTraceCandidates}
           formatUnixSeconds={formatUnixSecondsStable}
           showCustomTooltip={showCustomTooltip}
-          compactMode={compactMode}
+          compactMode={effectiveCompactMode}
           requestLogsAvailable={requestLogsAvailable}
           requestLogs={displayedRequestLogs}
           requestLogsLoading={requestLogsLoading}
+          emptyStateTitle={emptyStateTitle}
           selectedLogId={selectedLogId}
           onSelectLogId={onSelectLogId}
         />
@@ -550,6 +567,7 @@ type RequestLogsListProps = {
   requestLogsAvailable: boolean | null;
   requestLogs: RequestLogSummary[];
   requestLogsLoading: boolean;
+  emptyStateTitle: string;
   selectedLogId: number | null;
   onSelectLogId: (id: number | null) => void;
 };
@@ -562,6 +580,7 @@ const RequestLogsList = memo(function RequestLogsList({
   requestLogsAvailable,
   requestLogs,
   requestLogsLoading,
+  emptyStateTitle,
   selectedLogId,
   onSelectLogId,
 }: RequestLogsListProps) {
@@ -612,7 +631,7 @@ const RequestLogsList = memo(function RequestLogsList({
             加载中…
           </div>
         ) : (
-          <EmptyState title="当前没有最近使用记录" />
+          <EmptyState title={emptyStateTitle} />
         )
       ) : useVirtual ? (
         <div

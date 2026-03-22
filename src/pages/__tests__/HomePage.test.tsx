@@ -307,169 +307,175 @@ describe("pages/HomePage", () => {
 
   it("covers circuits auto refresh, reset provider, mode switching, and refetch flows", async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-02-01T00:00:00Z"));
-    setTauriRuntime();
+    try {
+      vi.setSystemTime(new Date("2026-02-01T00:00:00Z"));
+      setTauriRuntime();
 
-    const client = createTestQueryClient();
-    const invalidateSpy = vi.spyOn(client, "invalidateQueries");
+      const client = createTestQueryClient();
+      const invalidateSpy = vi.spyOn(client, "invalidateQueries");
 
-    const resetMutation = { mutateAsync: vi.fn() };
-    resetMutation.mutateAsync
-      .mockResolvedValueOnce(true)
-      .mockResolvedValueOnce(false)
-      .mockRejectedValueOnce(new Error("reset boom"));
-    vi.mocked(useGatewayCircuitResetProviderMutation).mockReturnValue(resetMutation as any);
+      const resetMutation = { mutateAsync: vi.fn() };
+      resetMutation.mutateAsync
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(false)
+        .mockRejectedValueOnce(new Error("reset boom"));
+      vi.mocked(useGatewayCircuitResetProviderMutation).mockReturnValue(resetMutation as any);
 
-    const nowUnix = Math.floor(Date.now() / 1000);
-    vi.mocked(useGatewayCircuitStatusQuery).mockImplementation((cliKey: any) => {
-      if (cliKey === "claude") {
-        return {
-          data: [{ provider_id: 1, state: "OPEN", open_until: nowUnix + 5, cooldown_until: null }],
-        } as any;
-      }
-      if (cliKey === "codex") {
+      const nowUnix = Math.floor(Date.now() / 1000);
+      vi.mocked(useGatewayCircuitStatusQuery).mockImplementation((cliKey: any) => {
+        if (cliKey === "claude") {
+          return {
+            data: [
+              { provider_id: 1, state: "OPEN", open_until: nowUnix + 5, cooldown_until: null },
+            ],
+          } as any;
+        }
+        if (cliKey === "codex") {
+          return {
+            data: [
+              { provider_id: 2, state: "CLOSED", open_until: null, cooldown_until: nowUnix + 10 },
+            ],
+          } as any;
+        }
         return {
           data: [
-            { provider_id: 2, state: "CLOSED", open_until: null, cooldown_until: nowUnix + 10 },
+            { provider_id: 3, state: "OPEN", open_until: nowUnix + 1, cooldown_until: nowUnix + 2 },
           ],
         } as any;
-      }
-      return {
+      });
+
+      vi.mocked(useProvidersListQuery).mockImplementation((cliKey: any) => {
+        if (cliKey === "claude") return { data: [{ id: 1, name: " P1 " }] } as any;
+        if (cliKey === "codex") return { data: [{ id: 2, name: "" }] } as any;
+        return { data: [{ id: 3, name: "P3" }] } as any;
+      });
+
+      vi.mocked(useUsageHourlySeriesQuery).mockReturnValue({
+        data: [],
+        isFetching: false,
+        refetch: vi.fn().mockResolvedValue({ error: new Error("u") }),
+      } as any);
+
+      vi.mocked(useGatewaySessionsListQuery).mockReturnValue({
+        data: [{ cli_key: "claude", session_id: "s1" }],
+        isLoading: false,
+      } as any);
+
+      const requestLogsRefetch = vi.fn().mockResolvedValue({ error: new Error("r") });
+      vi.mocked(useRequestLogsListAllQuery).mockReturnValue({
+        data: [],
+        isLoading: false,
+        isFetching: true,
+        refetch: requestLogsRefetch,
+      } as any);
+      vi.mocked(useRequestLogsIncrementalPollQuery).mockReturnValue({
+        data: 0,
+        isLoading: false,
+        isFetching: false,
+        refetch: vi.fn(),
+      } as any);
+
+      vi.mocked(useSortModesListQuery).mockReturnValue({
         data: [
-          { provider_id: 3, state: "OPEN", open_until: nowUnix + 1, cooldown_until: nowUnix + 2 },
+          { id: 1, name: "M1" },
+          { id: 2, name: "M2" },
         ],
-      } as any;
-    });
+        isLoading: false,
+      } as any);
 
-    vi.mocked(useProvidersListQuery).mockImplementation((cliKey: any) => {
-      if (cliKey === "claude") return { data: [{ id: 1, name: " P1 " }] } as any;
-      if (cliKey === "codex") return { data: [{ id: 2, name: "" }] } as any;
-      return { data: [{ id: 3, name: "P3" }] } as any;
-    });
+      vi.mocked(useSortModeActiveListQuery).mockReturnValue({
+        data: [
+          { cli_key: "claude", mode_id: 1 },
+          { cli_key: "codex", mode_id: null },
+        ],
+        isLoading: false,
+      } as any);
 
-    vi.mocked(useUsageHourlySeriesQuery).mockReturnValue({
-      data: [],
-      isFetching: false,
-      refetch: vi.fn().mockResolvedValue({ error: new Error("u") }),
-    } as any);
+      const activeSetMutation = { mutateAsync: vi.fn() };
+      activeSetMutation.mutateAsync
+        .mockResolvedValueOnce({ cli_key: "codex", mode_id: 1 })
+        .mockResolvedValueOnce(null);
+      vi.mocked(useSortModeActiveSetMutation).mockReturnValue(activeSetMutation as any);
 
-    vi.mocked(useGatewaySessionsListQuery).mockReturnValue({
-      data: [{ cli_key: "claude", session_id: "s1" }],
-      isLoading: false,
-    } as any);
+      vi.mocked(useRequestLogDetailQuery).mockReturnValue({
+        data: { trace_id: "t1" },
+        isFetching: true,
+      } as any);
+      vi.mocked(useRequestAttemptLogsByTraceIdQuery).mockReturnValue({
+        data: [],
+        isFetching: true,
+      } as any);
 
-    const requestLogsRefetch = vi.fn().mockResolvedValue({ error: new Error("r") });
-    vi.mocked(useRequestLogsListAllQuery).mockReturnValue({
-      data: [],
-      isLoading: false,
-      isFetching: true,
-      refetch: requestLogsRefetch,
-    } as any);
-    vi.mocked(useRequestLogsIncrementalPollQuery).mockReturnValue({
-      data: 0,
-      isLoading: false,
-      isFetching: false,
-      refetch: vi.fn(),
-    } as any);
+      vi.mocked(useCliProxy).mockReturnValue({
+        enabled: false,
+        appliedToCurrentGateway: { claude: null, codex: null, gemini: null },
+        toggling: false,
+        setCliProxyEnabled: vi.fn(),
+      } as any);
 
-    vi.mocked(useSortModesListQuery).mockReturnValue({
-      data: [
-        { id: 1, name: "M1" },
-        { id: 2, name: "M2" },
-      ],
-      isLoading: false,
-    } as any);
+      renderWithProviders(client, <HomePage />);
 
-    vi.mocked(useSortModeActiveListQuery).mockReturnValue({
-      data: [
-        { cli_key: "claude", mode_id: 1 },
-        { cli_key: "codex", mode_id: null },
-      ],
-      isLoading: false,
-    } as any);
+      // open circuits derived from mocked circuits
+      expect(screen.getByText("open-circuits:3")).toBeInTheDocument();
 
-    const activeSetMutation = { mutateAsync: vi.fn() };
-    activeSetMutation.mutateAsync
-      .mockResolvedValueOnce({ cli_key: "codex", mode_id: 1 })
-      .mockResolvedValueOnce(null);
-    vi.mocked(useSortModeActiveSetMutation).mockReturnValue(activeSetMutation as any);
+      // auto refresh timer should invalidate circuits after earliest open_until
+      vi.advanceTimersByTime(2250);
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: gatewayKeys.circuits() });
 
-    vi.mocked(useRequestLogDetailQuery).mockReturnValue({
-      data: { trace_id: "t1" },
-      isFetching: true,
-    } as any);
-    vi.mocked(useRequestAttemptLogsByTraceIdQuery).mockReturnValue({
-      data: [],
-      isFetching: true,
-    } as any);
+      // reset provider success / fail / error
+      fireEvent.click(screen.getByRole("button", { name: "reset-1" }));
+      await Promise.resolve();
+      expect(resetMutation.mutateAsync).toHaveBeenCalledWith({ providerId: 1 });
+      expect((toast as any).success).toHaveBeenCalledWith("已解除熔断");
 
-    vi.mocked(useCliProxy).mockReturnValue({
-      enabled: false,
-      appliedToCurrentGateway: { claude: null, codex: null, gemini: null },
-      toggling: false,
-      setCliProxyEnabled: vi.fn(),
-    } as any);
+      fireEvent.click(screen.getByRole("button", { name: "reset-2" }));
+      await Promise.resolve();
+      expect(resetMutation.mutateAsync).toHaveBeenCalledWith({ providerId: 2 });
+      expect((toast as any).error).toHaveBeenCalledWith("解除熔断失败");
 
-    renderWithProviders(client, <HomePage />);
+      fireEvent.click(screen.getByRole("button", { name: "reset-3" }));
+      await Promise.resolve();
+      expect(resetMutation.mutateAsync).toHaveBeenCalledWith({ providerId: 3 });
+      expect(logToConsole).toHaveBeenCalledWith("error", "解除熔断失败", {
+        providerId: 3,
+        error: "Error: reset boom",
+      });
 
-    // open circuits derived from mocked circuits
-    expect(screen.getByText("open-circuits:3")).toBeInTheDocument();
+      // refresh callbacks (toasts on error)
+      fireEvent.click(screen.getByRole("button", { name: "refresh-heatmap" }));
+      await Promise.resolve();
+      expect(toast).toHaveBeenCalledWith("刷新用量失败：请查看控制台日志");
+      fireEvent.click(screen.getByRole("button", { name: "refresh-logs" }));
+      await Promise.resolve();
+      expect(toast).toHaveBeenCalledWith("读取使用记录失败：请查看控制台日志");
 
-    // auto refresh timer should invalidate circuits after earliest open_until
-    vi.advanceTimersByTime(2250);
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: gatewayKeys.circuits() });
+      // same switch is ignored
+      fireEvent.click(screen.getByRole("button", { name: "request-switch-same" }));
+      expect(activeSetMutation.mutateAsync).not.toHaveBeenCalledWith({
+        cliKey: "claude",
+        modeId: 1,
+      });
 
-    // reset provider success / fail / error
-    fireEvent.click(screen.getByRole("button", { name: "reset-1" }));
-    await Promise.resolve();
-    expect(resetMutation.mutateAsync).toHaveBeenCalledWith({ providerId: 1 });
-    expect((toast as any).success).toHaveBeenCalledWith("已解除熔断");
+      // switch codex directly -> activated toast branch
+      fireEvent.click(screen.getByRole("button", { name: "request-switch-codex-1" }));
+      await Promise.resolve();
+      expect(activeSetMutation.mutateAsync).toHaveBeenCalledWith({ cliKey: "codex", modeId: 1 });
+      expect(toast).toHaveBeenCalledWith("已激活：M1");
 
-    fireEvent.click(screen.getByRole("button", { name: "reset-2" }));
-    await Promise.resolve();
-    expect(resetMutation.mutateAsync).toHaveBeenCalledWith({ providerId: 2 });
-    expect((toast as any).error).toHaveBeenCalledWith("解除熔断失败");
-
-    fireEvent.click(screen.getByRole("button", { name: "reset-3" }));
-    await Promise.resolve();
-    expect(resetMutation.mutateAsync).toHaveBeenCalledWith({ providerId: 3 });
-    expect(logToConsole).toHaveBeenCalledWith("error", "解除熔断失败", {
-      providerId: 3,
-      error: "Error: reset boom",
-    });
-
-    // refresh callbacks (toasts on error)
-    fireEvent.click(screen.getByRole("button", { name: "refresh-heatmap" }));
-    await Promise.resolve();
-    expect(toast).toHaveBeenCalledWith("刷新用量失败：请查看控制台日志");
-    fireEvent.click(screen.getByRole("button", { name: "refresh-logs" }));
-    await Promise.resolve();
-    expect(toast).toHaveBeenCalledWith("读取使用记录失败：请查看控制台日志");
-
-    // same switch is ignored
-    fireEvent.click(screen.getByRole("button", { name: "request-switch-same" }));
-    expect(activeSetMutation.mutateAsync).not.toHaveBeenCalledWith({ cliKey: "claude", modeId: 1 });
-
-    // switch codex directly -> activated toast branch
-    fireEvent.click(screen.getByRole("button", { name: "request-switch-codex-1" }));
-    await Promise.resolve();
-    expect(activeSetMutation.mutateAsync).toHaveBeenCalledWith({ cliKey: "codex", modeId: 1 });
-    expect(toast).toHaveBeenCalledWith("已激活：M1");
-
-    // switch claude with active sessions -> confirmation dialog
-    fireEvent.click(screen.getByRole("button", { name: "request-switch-claude-2" }));
-    const dialog = within(screen.getByRole("dialog"));
-    fireEvent.click(dialog.getByRole("button", { name: "确认切换" }));
-    await Promise.resolve();
-    expect(activeSetMutation.mutateAsync).toHaveBeenCalledWith({ cliKey: "claude", modeId: 2 });
-    // switch back to overview triggers refetch when returning
-    fireEvent.click(screen.getByRole("tab", { name: "花费" }));
-    expect(screen.getByText("cost-panel")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("tab", { name: "概览" }));
-    await Promise.resolve();
-    expect(requestLogsRefetch).toHaveBeenCalled();
-
-    vi.useRealTimers();
+      // switch claude with active sessions -> confirmation dialog
+      fireEvent.click(screen.getByRole("button", { name: "request-switch-claude-2" }));
+      const dialog = within(screen.getByRole("dialog"));
+      fireEvent.click(dialog.getByRole("button", { name: "确认切换" }));
+      await Promise.resolve();
+      expect(activeSetMutation.mutateAsync).toHaveBeenCalledWith({ cliKey: "claude", modeId: 2 });
+      fireEvent.click(screen.getByRole("tab", { name: "花费" }));
+      expect(screen.getByRole("tab", { name: "花费" })).toHaveAttribute("aria-selected", "true");
+      fireEvent.click(screen.getByRole("tab", { name: "概览" }));
+      await Promise.resolve();
+      expect(requestLogsRefetch).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("prompts env conflicts before enabling CLI proxy", async () => {

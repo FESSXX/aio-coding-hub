@@ -1,3 +1,5 @@
+import { invoke } from "@tauri-apps/api/core";
+
 const DEFAULT_TAURI_INVOKE_TIMEOUT_MS = 60_000;
 
 export type InvokeTauriOptions = {
@@ -24,7 +26,6 @@ export async function invokeTauriOrNull<T>(
   args?: Record<string, unknown>,
   options?: InvokeTauriOptions
 ): Promise<T | null> {
-  const { invoke } = await import("@tauri-apps/api/core");
   const invokePromise = invoke<T>(cmd, args);
   const timeoutMs = normalizeTimeoutMs(options?.timeoutMs);
   if (timeoutMs == null) return invokePromise;

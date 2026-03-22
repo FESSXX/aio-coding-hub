@@ -1,3 +1,4 @@
+import { listen } from "@tauri-apps/api/event";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import type { AppSettings, WslHostAddressMode } from "../../services/settings";
@@ -70,23 +71,21 @@ export function WslSettingsCard({ available, saving, settings }: WslSettingsCard
     let cancelled = false;
     const cleanupFns: (() => void)[] = [];
 
-    import("@tauri-apps/api/event").then(({ listen }) => {
-      if (cancelled) return;
-
+    void Promise.all([
       listen<WslConfigureReport>("wsl:auto_config_result", (event) => {
         setLastReport(event.payload);
         void wslOverviewQuery.refetch();
-      }).then((unlisten) => {
-        if (cancelled) unlisten();
-        else cleanupFns.push(unlisten);
-      });
-
+      }),
       listen("wsl:localhost_switch_prompt", () => {
         setShowListenModeDialog(true);
-      }).then((unlisten) => {
-        if (cancelled) unlisten();
-        else cleanupFns.push(unlisten);
-      });
+      }),
+    ]).then(([unlistenAutoConfigResult, unlistenLocalhostSwitchPrompt]) => {
+      if (cancelled) {
+        unlistenAutoConfigResult();
+        unlistenLocalhostSwitchPrompt();
+        return;
+      }
+      cleanupFns.push(unlistenAutoConfigResult, unlistenLocalhostSwitchPrompt);
     });
 
     return () => {

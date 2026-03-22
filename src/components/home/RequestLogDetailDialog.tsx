@@ -3,7 +3,11 @@
 // - Keeps the dialog UI isolated from the main overview panel to reduce file size and improve cohesion.
 
 import { cliBadgeTone, cliShortLabel } from "../../constants/clis";
-import type { RequestAttemptLog, RequestLogDetail } from "../../services/requestLogs";
+import {
+  useRequestAttemptLogsByTraceIdQuery,
+  useRequestLogDetailQuery,
+} from "../../query/requestLogs";
+import type { RequestLogDetail } from "../../services/requestLogs";
 import { Card } from "../../ui/Card";
 import { Dialog } from "../../ui/Dialog";
 import { cn } from "../../utils/cn";
@@ -21,22 +25,20 @@ import { computeStatusBadge } from "./HomeLogShared";
 export type RequestLogDetailDialogProps = {
   selectedLogId: number | null;
   onSelectLogId: (id: number | null) => void;
-
-  selectedLog: RequestLogDetail | null;
-  selectedLogLoading: boolean;
-
-  attemptLogs: RequestAttemptLog[];
-  attemptLogsLoading: boolean;
 };
 
 export function RequestLogDetailDialog({
   selectedLogId,
   onSelectLogId,
-  selectedLog,
-  selectedLogLoading,
-  attemptLogs,
-  attemptLogsLoading,
 }: RequestLogDetailDialogProps) {
+  const selectedLogQuery = useRequestLogDetailQuery(selectedLogId);
+  const selectedLog = selectedLogQuery.data ?? null;
+  const selectedLogLoading = selectedLogQuery.isFetching;
+
+  const attemptLogsQuery = useRequestAttemptLogsByTraceIdQuery(selectedLog?.trace_id ?? null, 50);
+  const attemptLogs = attemptLogsQuery.data ?? [];
+  const attemptLogsLoading = attemptLogsQuery.isFetching;
+
   const finalProviderText = resolveProviderLabel(
     selectedLog?.final_provider_name,
     selectedLog?.final_provider_id
@@ -68,7 +70,7 @@ export function RequestLogDetailDialog({
       onOpenChange={(open) => {
         if (!open) onSelectLogId(null);
       }}
-      title="日志详情"
+      title="代理记录详情"
       description="先看关键指标，再看为什么会重试、跳过或切换供应商。"
       className="max-w-3xl"
     >

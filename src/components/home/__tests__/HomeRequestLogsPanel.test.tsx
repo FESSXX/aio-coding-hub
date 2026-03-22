@@ -104,7 +104,7 @@ describe("components/home/HomeRequestLogsPanel", () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText("使用记录（最近 50 条）")).toBeInTheDocument();
+    expect(screen.getByText("最近代理记录")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /claude-3-opus.*P1/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("switch", { name: "最近使用记录简洁模式" }));
     expect(screen.getByRole("button", { name: /claude-3-opus.*P1/ })).toBeInTheDocument();
@@ -264,7 +264,7 @@ describe("components/home/HomeRequestLogsPanel", () => {
     expect(screen.getByText("x1.50")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /500 已中断/ })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "日志" }));
+    fireEvent.click(screen.getByRole("button", { name: "代理记录" }));
     expect(screen.getByText("LOGS_PAGE")).toBeInTheDocument();
   });
 
@@ -340,7 +340,7 @@ describe("components/home/HomeRequestLogsPanel", () => {
 
     expect(screen.getAllByText("数据不可用").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "刷新" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "日志" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "代理记录" })).toBeDisabled();
   });
 
   it("shows plain 链路 when route exists without failover", () => {
@@ -418,6 +418,31 @@ describe("components/home/HomeRequestLogsPanel", () => {
     );
 
     expect(screen.getAllByText("加载中…").length).toBeGreaterThan(0);
+  });
+
+  it("supports page-specific summary and empty state copy", () => {
+    render(
+      <MemoryRouter>
+        <HomeRequestLogsPanel
+          showCustomTooltip={false}
+          title="代理记录列表"
+          summaryTextOverride="共 0 / 3 条"
+          emptyStateTitle="没有符合筛选条件的代理记录"
+          traces={[]}
+          requestLogs={[]}
+          requestLogsLoading={false}
+          requestLogsRefreshing={false}
+          requestLogsAvailable={true}
+          onRefreshRequestLogs={vi.fn()}
+          selectedLogId={null}
+          onSelectLogId={vi.fn()}
+        />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText("代理记录列表")).toBeInTheDocument();
+    expect(screen.getByText("共 0 / 3 条")).toBeInTheDocument();
+    expect(screen.getByText("没有符合筛选条件的代理记录")).toBeInTheDocument();
   });
 
   it("renders preview rows when dev preview is enabled in empty state", () => {

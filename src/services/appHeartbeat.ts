@@ -1,3 +1,5 @@
+import { listen } from "@tauri-apps/api/event";
+
 import { invokeTauriOrNull } from "./tauriInvoke";
 
 export type AppHeartbeatPayload = {
@@ -5,8 +7,6 @@ export type AppHeartbeatPayload = {
 };
 
 export async function listenAppHeartbeat(): Promise<() => void> {
-  const { listen } = await import("@tauri-apps/api/event");
-
   let inFlight = false;
 
   const unlisten = await listen<AppHeartbeatPayload>("app:heartbeat", () => {

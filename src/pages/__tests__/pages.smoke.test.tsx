@@ -74,7 +74,7 @@ describe("pages (smoke)", () => {
 
   it("renders LogsPage", () => {
     renderPage(<LogsPage />);
-    expect(screen.getByRole("heading", { level: 1, name: "日志" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "代理记录" })).toBeInTheDocument();
   });
 
   it("renders CliManagerPage", () => {

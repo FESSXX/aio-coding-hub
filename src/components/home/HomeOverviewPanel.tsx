@@ -2,7 +2,7 @@
 // - Used by `src/pages/HomePage.tsx` to render the "概览" tab content.
 // - This module is intentionally kept thin: it composes smaller, cohesive sub-components.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useNowUnix } from "../../hooks/useNowUnix";
 import type { OpenCircuitRow } from "../ProviderCircuitBadge";
 import type { GatewayActiveSession } from "../../services/gateway";
@@ -20,16 +20,26 @@ import type { UsageHourlyRow } from "../../services/usage";
 import { Button } from "../../ui/Button";
 import { Card } from "../../ui/Card";
 import { EmptyState } from "../../ui/EmptyState";
+import { Spinner } from "../../ui/Spinner";
 import { TabList } from "../../ui/TabList";
 import { formatCountdownSeconds } from "../../utils/formatters";
-import { HomeActiveSessionsCardContent } from "./HomeActiveSessionsCard";
 import { CliBrandIcon } from "./CliBrandIcon";
-import { HomeProviderLimitPanelContent } from "./HomeProviderLimitPanel";
 import { HomeRequestLogsPanel } from "./HomeRequestLogsPanel";
 import { HomeUsageSection } from "./HomeUsageSection";
-import { HomeWorkspaceConfigPanel } from "./HomeWorkspaceConfigPanel";
 import { HomeWorkStatusCard } from "./HomeWorkStatusCard";
 import type { HomeCliWorkspaceConfig } from "./homeWorkspaceConfigTypes";
+
+const LazyHomeActiveSessionsCardContent = lazy(() =>
+  import("./HomeActiveSessionsCard").then((m) => ({ default: m.HomeActiveSessionsCardContent }))
+);
+
+const LazyHomeProviderLimitPanelContent = lazy(() =>
+  import("./HomeProviderLimitPanel").then((m) => ({ default: m.HomeProviderLimitPanelContent }))
+);
+
+const LazyHomeWorkspaceConfigPanel = lazy(() =>
+  import("./HomeWorkspaceConfigPanel").then((m) => ({ default: m.HomeWorkspaceConfigPanel }))
+);
 
 const PREVIEW_CIRCUITS: OpenCircuitRow[] = [
   {
@@ -169,6 +179,16 @@ function didKeysChange(current: string[], previous: string[]) {
   );
 }
 
+function OverviewPanelFallback() {
+  return (
+    <div className="flex h-full items-center justify-center text-sm text-slate-600 dark:text-slate-400">
+      <div className="flex items-center gap-3">
+        <Spinner />
+        <span>加载面板中…</span>
+      </div>
+    </div>
+  );
+}
 export type HomeOverviewPanelProps = {
   showCustomTooltip: boolean;
   devPreviewEnabled?: boolean;
@@ -478,31 +498,37 @@ export function HomeOverviewPanel({
 
             <div className="flex-1 min-h-0 mt-3">
               {sessionsTab === "sessions" ? (
-                <HomeActiveSessionsCardContent
-                  activeSessions={displayedActiveSessions}
-                  activeSessionsLoading={activeSessionsLoading}
-                  activeSessionsAvailable={activeSessionsAvailable}
-                />
+                <Suspense fallback={<OverviewPanelFallback />}>
+                  <LazyHomeActiveSessionsCardContent
+                    activeSessions={displayedActiveSessions}
+                    activeSessionsLoading={activeSessionsLoading}
+                    activeSessionsAvailable={activeSessionsAvailable}
+                  />
+                </Suspense>
               ) : sessionsTab === "workspaceConfig" ? (
-                <HomeWorkspaceConfigPanel
-                  configs={displayedWorkspaceConfigs}
-                  selectedCliKey={selectedWorkspaceConfigCliKey}
-                  onSelectCliKey={setSelectedWorkspaceConfigCliKey}
-                  sortModes={sortModes}
-                  sortModesLoading={sortModesLoading}
-                  sortModesAvailable={sortModesAvailable}
-                  activeModeByCli={activeModeByCli}
-                  activeModeToggling={activeModeToggling}
-                  onSetCliActiveMode={onSetCliActiveMode}
-                />
+                <Suspense fallback={<OverviewPanelFallback />}>
+                  <LazyHomeWorkspaceConfigPanel
+                    configs={displayedWorkspaceConfigs}
+                    selectedCliKey={selectedWorkspaceConfigCliKey}
+                    onSelectCliKey={setSelectedWorkspaceConfigCliKey}
+                    sortModes={sortModes}
+                    sortModesLoading={sortModesLoading}
+                    sortModesAvailable={sortModesAvailable}
+                    activeModeByCli={activeModeByCli}
+                    activeModeToggling={activeModeToggling}
+                    onSetCliActiveMode={onSetCliActiveMode}
+                  />
+                </Suspense>
               ) : sessionsTab === "providerLimit" ? (
-                <HomeProviderLimitPanelContent
-                  rows={displayedProviderLimitRows}
-                  loading={providerLimitLoading}
-                  available={providerLimitAvailable}
-                  onRefresh={onRefreshProviderLimit}
-                  refreshing={providerLimitRefreshing}
-                />
+                <Suspense fallback={<OverviewPanelFallback />}>
+                  <LazyHomeProviderLimitPanelContent
+                    rows={displayedProviderLimitRows}
+                    loading={providerLimitLoading}
+                    available={providerLimitAvailable}
+                    onRefresh={onRefreshProviderLimit}
+                    refreshing={providerLimitRefreshing}
+                  />
+                </Suspense>
               ) : displayedCircuits.length === 0 ? (
                 <EmptyState title="当前没有熔断中的 Provider" />
               ) : (
@@ -560,6 +586,8 @@ export function HomeOverviewPanel({
           <HomeRequestLogsPanel
             showCustomTooltip={showCustomTooltip}
             devPreviewEnabled={devPreviewEnabled}
+            showSummaryText={false}
+            showOpenLogsPageButton={false}
             traces={traces}
             requestLogs={requestLogs}
             requestLogsLoading={requestLogsLoading}
