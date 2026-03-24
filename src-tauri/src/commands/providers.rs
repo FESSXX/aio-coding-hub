@@ -1009,7 +1009,7 @@ fn parse_claude_limits(body: &serde_json::Value) -> (Option<String>, Option<Stri
 mod tests {
     use super::*;
     #[cfg(not(target_os = "windows"))]
-    use std::process::Command;
+    use std::process::{Command, Stdio};
     #[cfg(not(target_os = "windows"))]
     use tempfile::tempdir;
 
@@ -1117,6 +1117,7 @@ mod tests {
             .arg(&script_path)
             .env("PATH", path_env)
             .env("OUTPUT_PATH", &output_path)
+            .stdin(Stdio::null())
             .status()
             .expect("run launcher");
 

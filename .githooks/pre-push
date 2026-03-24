@@ -4,5 +4,10 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
+# Git passes ref update lines to pre-push via stdin. Our checks do not use
+# them, and letting child test processes inherit that stdin can make shell-based
+# tests accidentally execute ref names as commands.
+exec </dev/null
+
 echo "[pre-push] Running full pre-push checks (coverage + tauri test + clippy)..."
 pnpm run check:prepush

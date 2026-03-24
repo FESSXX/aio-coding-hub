@@ -449,15 +449,12 @@ fn strip_incompatible_protocol_headers(
         return;
     }
 
-    match (source_cli_key, target_cli_key) {
-        ("claude", "codex") => {
-            strip_headers_where(headers, |name| {
-                name.starts_with("anthropic-")
-                    || name.starts_with("x-stainless-")
-                    || name.starts_with("x-claude-")
-            });
-        }
-        _ => {}
+    if let ("claude", "codex") = (source_cli_key, target_cli_key) {
+        strip_headers_where(headers, |name| {
+            name.starts_with("anthropic-")
+                || name.starts_with("x-stainless-")
+                || name.starts_with("x-claude-")
+        });
     }
 }
 
