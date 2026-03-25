@@ -574,7 +574,11 @@ export function SkillsMarketPage() {
         </div>
       </Card>
 
-      <Card className="min-h-0 flex-1 overflow-hidden" padding="md">
+      <Card
+        className="min-h-0 flex flex-1 flex-col overflow-hidden"
+        padding="md"
+        data-testid="skills-market-list-card"
+      >
         <div className="flex flex-wrap items-center gap-2">
           <input
             value={query}
@@ -608,7 +612,10 @@ export function SkillsMarketPage() {
           ) : null}
         </div>
 
-        <div className="mt-4 min-h-0 overflow-y-auto pr-1 scrollbar-overlay">
+        <div
+          className="mt-4 min-h-0 flex-1 overflow-y-auto pr-1 scrollbar-overlay"
+          data-testid="skills-market-scroll-region"
+        >
           {loading ? (
             <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
               <Spinner size="sm" />

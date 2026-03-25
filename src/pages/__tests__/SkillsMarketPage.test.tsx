@@ -206,6 +206,42 @@ describe("pages/SkillsMarketPage", () => {
     expect(toast).toHaveBeenCalledWith("已安装到 Claude Code");
   });
 
+  it("keeps the market list area as a flex scroll region for expanded repo content", () => {
+    setTauriRuntime();
+    navigateMock.mockClear();
+    mockCommonState();
+
+    vi.mocked(useSkillsDiscoverAvailableQuery).mockReturnValue({
+      data: [
+        {
+          name: "Alpha",
+          description: "Alpha desc",
+          source_git_url: "https://github.com/acme/repo-one",
+          source_branch: "main",
+          source_subdir: "skills/alpha",
+          installed: false,
+        },
+        {
+          name: "Beta",
+          description: "Beta desc",
+          source_git_url: "https://github.com/acme/repo-one",
+          source_branch: "main",
+          source_subdir: "skills/beta",
+          installed: false,
+        },
+      ],
+      isFetching: false,
+    } as any);
+
+    renderWithProviders(<SkillsMarketPage />);
+
+    expect(screen.getByTestId("skills-market-list-card")).toHaveClass("flex", "flex-col", "flex-1");
+    expect(screen.getByTestId("skills-market-scroll-region")).toHaveClass(
+      "flex-1",
+      "overflow-y-auto"
+    );
+  });
+
   it("supports installing a whole repo and navigating to generic skills when needed", async () => {
     setTauriRuntime();
     navigateMock.mockClear();
