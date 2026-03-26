@@ -44,7 +44,7 @@ fn local_claude_plugins_are_stashed_and_restored_per_workspace_and_config_is_res
 
     let stash1 = app
         .home_dir()
-        .join(".aio-coding-hub-test")
+        .join(app.app_dotdir_name())
         .join("plugins-local")
         .join("claude")
         .join("1")
@@ -84,7 +84,7 @@ fn local_claude_plugins_are_stashed_and_restored_per_workspace_and_config_is_res
 
     let stash2 = app
         .home_dir()
-        .join(".aio-coding-hub-test")
+        .join(app.app_dotdir_name())
         .join("plugins-local")
         .join("claude")
         .join("2")

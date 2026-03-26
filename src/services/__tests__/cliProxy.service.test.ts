@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { logToConsole } from "../consoleLog";
 import { invokeTauriOrNull } from "../tauriInvoke";
-import { cliProxySetEnabled, cliProxyStatusAll, cliProxySyncEnabled } from "../cliProxy";
+import {
+  cliProxyRebindCodexHome,
+  cliProxySetEnabled,
+  cliProxyStatusAll,
+  cliProxySyncEnabled,
+} from "../cliProxy";
 
 vi.mock("../tauriInvoke", async () => {
   const actual = await vi.importActual<typeof import("../tauriInvoke")>("../tauriInvoke");
@@ -52,9 +57,13 @@ describe("services/cliProxy", () => {
       enabled: true,
     });
 
-    await cliProxySyncEnabled("http://127.0.0.1:37123");
+    await cliProxySyncEnabled("http://127.0.0.1:37123", { apply_live: false });
     expect(invokeTauriOrNull).toHaveBeenCalledWith("cli_proxy_sync_enabled", {
       baseOrigin: "http://127.0.0.1:37123",
+      applyLive: false,
     });
+
+    await cliProxyRebindCodexHome();
+    expect(invokeTauriOrNull).toHaveBeenCalledWith("cli_proxy_rebind_codex_home");
   });
 });

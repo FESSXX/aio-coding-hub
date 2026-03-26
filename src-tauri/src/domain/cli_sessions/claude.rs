@@ -108,8 +108,7 @@ fn file_times(path: &Path) -> (Option<i64>, Option<i64>) {
 }
 
 fn home_dir(app: &tauri::AppHandle) -> AppResult<PathBuf> {
-    crate::shared::user_home::home_dir(app)
-        .map_err(|e| AppError::new("INTERNAL_ERROR", e.to_string()))
+    crate::app_paths::home_dir(app)
 }
 
 fn claude_projects_dir(app: &tauri::AppHandle) -> AppResult<PathBuf> {

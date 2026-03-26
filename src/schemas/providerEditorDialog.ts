@@ -88,7 +88,10 @@ function parseResetTimeHms() {
   });
 }
 
-export function createProviderEditorDialogSchema(options: { mode: "create" | "edit"; skipApiKeyCheck?: boolean }) {
+export function createProviderEditorDialogSchema(options: {
+  mode: "create" | "edit";
+  skipApiKeyCheck?: boolean;
+}) {
   return z
     .object({
       name: z.string().trim().min(1, { message: "名称不能为空" }),

@@ -26,11 +26,22 @@ import {
   useCliManagerCodexInfoQuery,
   useCliManagerGeminiInfoQuery,
 } from "../../query/cliManager";
+import { cliProxyKeys } from "../../query/keys";
+import { cliProxyRebindCodexHome, cliProxyStatusAll } from "../../services/cliProxy";
 
 vi.mock("sonner", () => ({
   toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }),
 }));
 vi.mock("../../services/consoleLog", () => ({ logToConsole: vi.fn() }));
+vi.mock("../../services/cliProxy", async () => {
+  const actual =
+    await vi.importActual<typeof import("../../services/cliProxy")>("../../services/cliProxy");
+  return {
+    ...actual,
+    cliProxyStatusAll: vi.fn(),
+    cliProxyRebindCodexHome: vi.fn(),
+  };
+});
 
 vi.mock("../../components/cli-manager/tabs/GeneralTab", () => ({
   CliManagerGeneralTab: ({
@@ -96,6 +107,7 @@ vi.mock("../../components/cli-manager/tabs/CodexTab", () => ({
     refreshCodex,
     openCodexConfigDir,
     persistCodexConfig,
+    persistCodexHomeSettings,
     pickCodexHomeDirectory,
   }: any) => (
     <div>
@@ -111,6 +123,12 @@ vi.mock("../../components/cli-manager/tabs/CodexTab", () => ({
       </button>
       <button type="button" onClick={() => persistCodexConfig({ foo: "bar" })}>
         save-codex
+      </button>
+      <button
+        type="button"
+        onClick={() => persistCodexHomeSettings?.("custom", "D:\\Work\\CodexHome")}
+      >
+        save-codex-home
       </button>
     </div>
   ),
@@ -159,11 +177,12 @@ vi.mock("../../query/cliManager", async () => {
 
 function renderWithProviders(element: ReactElement) {
   const client = createTestQueryClient();
-  return render(
+  const view = render(
     <QueryClientProvider client={client}>
       <MemoryRouter>{element}</MemoryRouter>
     </QueryClientProvider>
   );
+  return { ...view, client };
 }
 
 function createAppSettings(overrides: Partial<any> = {}) {
@@ -758,6 +777,685 @@ describe("pages/CliManagerPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "save-codex" }));
     await waitFor(() =>
       expect(toast).toHaveBeenCalledWith(expect.stringContaining("更新 Codex 配置失败"))
+    );
+  });
+
+  it("rebinds enabled codex proxy and invalidates status cache after saving codex_home", async () => {
+    vi.mocked(toast).mockClear();
+    vi.mocked(cliProxyStatusAll).mockReset();
+    vi.mocked(cliProxyRebindCodexHome).mockReset();
+
+    vi.mocked(useSettingsQuery).mockReturnValue({
+      data: createAppSettings(),
+      isLoading: false,
+    } as any);
+    vi.mocked(useSettingsGatewayRectifierSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+    vi.mocked(useSettingsCircuitBreakerNoticeSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+    vi.mocked(useSettingsCodexSessionIdCompletionSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+
+    const commonMutation = { isPending: false, mutateAsync: vi.fn() };
+    commonMutation.mutateAsync.mockResolvedValue(
+      createAppSettings({
+        codex_home_mode: "custom",
+        codex_home_override: "D:\\Work\\CodexHome",
+      })
+    );
+    vi.mocked(useSettingsSetMutation).mockReturnValue(commonMutation as any);
+
+    vi.mocked(useCliManagerClaudeInfoQuery).mockReturnValue({
+      data: null,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as any);
+    vi.mocked(useCliManagerClaudeSettingsQuery).mockReturnValue({
+      data: null,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as any);
+    vi.mocked(useCliManagerClaudeSettingsSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+
+    const codexInfoRefetch = vi.fn().mockResolvedValue({ data: {} });
+    const codexConfigRefetch = vi.fn().mockResolvedValue({ data: {} });
+    const codexTomlRefetch = vi.fn().mockResolvedValue({ data: {} });
+    vi.mocked(useCliManagerCodexInfoQuery).mockReturnValue({
+      data: { found: true },
+      isFetching: false,
+      refetch: codexInfoRefetch,
+    } as any);
+    vi.mocked(useCliManagerCodexConfigQuery).mockReturnValue({
+      data: { config_dir: "/codex", can_open_config_dir: true },
+      isFetching: false,
+      refetch: codexConfigRefetch,
+    } as any);
+    vi.mocked(useCliManagerCodexConfigSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+    vi.mocked(useCliManagerCodexConfigTomlQuery).mockReturnValue({
+      data: { config_path: "/codex/config.toml", exists: true, toml: "" },
+      isFetching: false,
+      refetch: codexTomlRefetch,
+    } as any);
+    vi.mocked(useCliManagerCodexConfigTomlSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+    vi.mocked(useCliManagerGeminiInfoQuery).mockReturnValue({
+      data: null,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as any);
+
+    vi.mocked(cliProxyStatusAll).mockResolvedValue([
+      {
+        cli_key: "codex",
+        enabled: true,
+        base_origin: "http://127.0.0.1:40002",
+        applied_to_current_gateway: true,
+      },
+    ] as any);
+    vi.mocked(cliProxyRebindCodexHome).mockResolvedValue({
+      cli_key: "codex",
+      enabled: true,
+      ok: true,
+      trace_id: "trace-1",
+      error_code: null,
+      base_origin: "http://127.0.0.1:40002",
+      message: "已重绑 Codex 目录并写入当前网关配置",
+    } as any);
+
+    const { client } = renderWithProviders(<CliManagerPage />);
+    client.setQueryData(cliProxyKeys.statusAll(), [
+      {
+        cli_key: "codex",
+        enabled: true,
+        base_origin: "http://127.0.0.1:37123",
+        applied_to_current_gateway: false,
+      },
+    ]);
+    client.setQueryData(cliProxyKeys.statusAll(), [
+      {
+        cli_key: "codex",
+        enabled: true,
+        base_origin: "http://127.0.0.1:37123",
+        applied_to_current_gateway: false,
+      },
+    ]);
+    client.setQueryData(cliProxyKeys.statusAll(), [
+      {
+        cli_key: "codex",
+        enabled: true,
+        base_origin: "http://127.0.0.1:37123",
+        applied_to_current_gateway: false,
+      },
+    ]);
+    client.setQueryData(cliProxyKeys.statusAll(), [
+      {
+        cli_key: "codex",
+        enabled: true,
+        base_origin: "http://127.0.0.1:37123",
+        applied_to_current_gateway: false,
+      },
+    ]);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Codex" }));
+    await screen.findByText("codex-tab");
+
+    fireEvent.click(screen.getByRole("button", { name: "save-codex-home" }));
+
+    await waitFor(() =>
+      expect(commonMutation.mutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          codexHomeMode: "custom",
+          codexHomeOverride: "D:\\Work\\CodexHome",
+        })
+      )
+    );
+    await waitFor(() => expect(cliProxyStatusAll).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(cliProxyRebindCodexHome).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(codexConfigRefetch).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(codexTomlRefetch).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(codexInfoRefetch).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(client.getQueryState(cliProxyKeys.statusAll())?.isInvalidated).toBe(true)
+    );
+    await waitFor(() =>
+      expect(logToConsole).toHaveBeenCalledWith(
+        "info",
+        "Codex Home 已切换，已触发 Codex 代理重绑",
+        expect.objectContaining({
+          trace_id: "trace-1",
+          base_origin: "http://127.0.0.1:40002",
+        })
+      )
+    );
+  });
+
+  it("does not rebind codex proxy when codex proxy is disabled after saving codex_home", async () => {
+    vi.mocked(toast).mockClear();
+    vi.mocked(cliProxyStatusAll).mockReset();
+    vi.mocked(cliProxyRebindCodexHome).mockReset();
+
+    vi.mocked(useSettingsQuery).mockReturnValue({
+      data: createAppSettings(),
+      isLoading: false,
+    } as any);
+    vi.mocked(useSettingsGatewayRectifierSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+    vi.mocked(useSettingsCircuitBreakerNoticeSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+    vi.mocked(useSettingsCodexSessionIdCompletionSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+
+    const commonMutation = { isPending: false, mutateAsync: vi.fn() };
+    commonMutation.mutateAsync.mockResolvedValue(
+      createAppSettings({
+        codex_home_mode: "custom",
+        codex_home_override: "D:\\Work\\CodexHome",
+      })
+    );
+    vi.mocked(useSettingsSetMutation).mockReturnValue(commonMutation as any);
+
+    vi.mocked(useCliManagerClaudeInfoQuery).mockReturnValue({
+      data: null,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as any);
+    vi.mocked(useCliManagerClaudeSettingsQuery).mockReturnValue({
+      data: null,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as any);
+    vi.mocked(useCliManagerClaudeSettingsSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+
+    const codexInfoRefetch = vi.fn().mockResolvedValue({ data: {} });
+    const codexConfigRefetch = vi.fn().mockResolvedValue({ data: {} });
+    const codexTomlRefetch = vi.fn().mockResolvedValue({ data: {} });
+    vi.mocked(useCliManagerCodexInfoQuery).mockReturnValue({
+      data: { found: true },
+      isFetching: false,
+      refetch: codexInfoRefetch,
+    } as any);
+    vi.mocked(useCliManagerCodexConfigQuery).mockReturnValue({
+      data: { config_dir: "/codex", can_open_config_dir: true },
+      isFetching: false,
+      refetch: codexConfigRefetch,
+    } as any);
+    vi.mocked(useCliManagerCodexConfigSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+    vi.mocked(useCliManagerCodexConfigTomlQuery).mockReturnValue({
+      data: { config_path: "/codex/config.toml", exists: true, toml: "" },
+      isFetching: false,
+      refetch: codexTomlRefetch,
+    } as any);
+    vi.mocked(useCliManagerCodexConfigTomlSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+    vi.mocked(useCliManagerGeminiInfoQuery).mockReturnValue({
+      data: null,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as any);
+
+    vi.mocked(cliProxyStatusAll).mockResolvedValue([
+      {
+        cli_key: "codex",
+        enabled: false,
+        base_origin: "http://127.0.0.1:40002",
+        applied_to_current_gateway: false,
+      },
+    ] as any);
+    const { client } = renderWithProviders(<CliManagerPage />);
+    client.setQueryData(cliProxyKeys.statusAll(), [
+      {
+        cli_key: "codex",
+        enabled: true,
+        base_origin: "http://127.0.0.1:37123",
+        applied_to_current_gateway: false,
+      },
+    ]);
+    client.setQueryData(cliProxyKeys.statusAll(), [
+      {
+        cli_key: "codex",
+        enabled: true,
+        base_origin: "http://127.0.0.1:37123",
+        applied_to_current_gateway: false,
+      },
+    ]);
+    client.setQueryData(cliProxyKeys.statusAll(), [
+      {
+        cli_key: "codex",
+        enabled: true,
+        base_origin: "http://127.0.0.1:37123",
+        applied_to_current_gateway: false,
+      },
+    ]);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Codex" }));
+    await screen.findByText("codex-tab");
+
+    fireEvent.click(screen.getByRole("button", { name: "save-codex-home" }));
+
+    await waitFor(() =>
+      expect(commonMutation.mutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          codexHomeMode: "custom",
+          codexHomeOverride: "D:\\Work\\CodexHome",
+        })
+      )
+    );
+    await waitFor(() => expect(cliProxyStatusAll).toHaveBeenCalledTimes(1));
+    expect(cliProxyRebindCodexHome).not.toHaveBeenCalled();
+    await waitFor(() => expect(codexConfigRefetch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(codexTomlRefetch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(codexInfoRefetch).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(client.getQueryState(cliProxyKeys.statusAll())?.isInvalidated).toBe(true)
+    );
+  });
+
+  it("still attempts codex proxy rebind when cli proxy status read fails after saving codex_home", async () => {
+    vi.mocked(toast).mockClear();
+    vi.mocked(cliProxyStatusAll).mockReset();
+    vi.mocked(cliProxyRebindCodexHome).mockReset();
+
+    vi.mocked(useSettingsQuery).mockReturnValue({
+      data: createAppSettings(),
+      isLoading: false,
+    } as any);
+    vi.mocked(useSettingsGatewayRectifierSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+    vi.mocked(useSettingsCircuitBreakerNoticeSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+    vi.mocked(useSettingsCodexSessionIdCompletionSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+
+    const commonMutation = { isPending: false, mutateAsync: vi.fn() };
+    commonMutation.mutateAsync.mockResolvedValue(
+      createAppSettings({
+        codex_home_mode: "custom",
+        codex_home_override: "D:\\Work\\CodexHome",
+      })
+    );
+    vi.mocked(useSettingsSetMutation).mockReturnValue(commonMutation as any);
+
+    vi.mocked(useCliManagerClaudeInfoQuery).mockReturnValue({
+      data: null,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as any);
+    vi.mocked(useCliManagerClaudeSettingsQuery).mockReturnValue({
+      data: null,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as any);
+    vi.mocked(useCliManagerClaudeSettingsSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+
+    const codexInfoRefetch = vi.fn().mockResolvedValue({ data: {} });
+    const codexConfigRefetch = vi.fn().mockResolvedValue({ data: {} });
+    const codexTomlRefetch = vi.fn().mockResolvedValue({ data: {} });
+    vi.mocked(useCliManagerCodexInfoQuery).mockReturnValue({
+      data: { found: true },
+      isFetching: false,
+      refetch: codexInfoRefetch,
+    } as any);
+    vi.mocked(useCliManagerCodexConfigQuery).mockReturnValue({
+      data: { config_dir: "/codex", can_open_config_dir: true },
+      isFetching: false,
+      refetch: codexConfigRefetch,
+    } as any);
+    vi.mocked(useCliManagerCodexConfigSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+    vi.mocked(useCliManagerCodexConfigTomlQuery).mockReturnValue({
+      data: { config_path: "/codex/config.toml", exists: true, toml: "" },
+      isFetching: false,
+      refetch: codexTomlRefetch,
+    } as any);
+    vi.mocked(useCliManagerCodexConfigTomlSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+    vi.mocked(useCliManagerGeminiInfoQuery).mockReturnValue({
+      data: null,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as any);
+
+    vi.mocked(cliProxyStatusAll).mockRejectedValue(new Error("status failed"));
+    vi.mocked(cliProxyRebindCodexHome).mockResolvedValue({
+      cli_key: "codex",
+      enabled: true,
+      ok: true,
+      trace_id: "trace-fallback",
+      error_code: null,
+      base_origin: "http://127.0.0.1:40002",
+      message: "已重绑 Codex 目录并写入当前网关配置",
+    } as any);
+
+    const { client } = renderWithProviders(<CliManagerPage />);
+    client.setQueryData(cliProxyKeys.statusAll(), [
+      {
+        cli_key: "codex",
+        enabled: true,
+        base_origin: "http://127.0.0.1:37123",
+        applied_to_current_gateway: false,
+      },
+    ]);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Codex" }));
+    await screen.findByText("codex-tab");
+
+    fireEvent.click(screen.getByRole("button", { name: "save-codex-home" }));
+
+    await waitFor(() =>
+      expect(commonMutation.mutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          codexHomeMode: "custom",
+          codexHomeOverride: "D:\\Work\\CodexHome",
+        })
+      )
+    );
+    await waitFor(() => expect(cliProxyRebindCodexHome).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(logToConsole).toHaveBeenCalledWith(
+        "warn",
+        "读取 CLI 代理状态失败，将直接尝试重绑 Codex 代理",
+        expect.objectContaining({ error: expect.stringContaining("status failed") })
+      )
+    );
+    await waitFor(() => expect(codexConfigRefetch).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(codexTomlRefetch).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(codexInfoRefetch).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(client.getQueryState(cliProxyKeys.statusAll())?.isInvalidated).toBe(true)
+    );
+  });
+
+  it("toasts and invalidates status cache when codex proxy rebind returns non-ok", async () => {
+    vi.mocked(toast).mockClear();
+    vi.mocked(cliProxyStatusAll).mockReset();
+    vi.mocked(cliProxyRebindCodexHome).mockReset();
+
+    vi.mocked(useSettingsQuery).mockReturnValue({
+      data: createAppSettings(),
+      isLoading: false,
+    } as any);
+    vi.mocked(useSettingsGatewayRectifierSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+    vi.mocked(useSettingsCircuitBreakerNoticeSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+    vi.mocked(useSettingsCodexSessionIdCompletionSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+
+    const commonMutation = { isPending: false, mutateAsync: vi.fn() };
+    commonMutation.mutateAsync.mockResolvedValue(
+      createAppSettings({
+        codex_home_mode: "custom",
+        codex_home_override: "D:\\Work\\CodexHome",
+      })
+    );
+    vi.mocked(useSettingsSetMutation).mockReturnValue(commonMutation as any);
+
+    vi.mocked(useCliManagerClaudeInfoQuery).mockReturnValue({
+      data: null,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as any);
+    vi.mocked(useCliManagerClaudeSettingsQuery).mockReturnValue({
+      data: null,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as any);
+    vi.mocked(useCliManagerClaudeSettingsSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+
+    const codexInfoRefetch = vi.fn().mockResolvedValue({ data: {} });
+    const codexConfigRefetch = vi.fn().mockResolvedValue({ data: {} });
+    const codexTomlRefetch = vi.fn().mockResolvedValue({ data: {} });
+    vi.mocked(useCliManagerCodexInfoQuery).mockReturnValue({
+      data: { found: true },
+      isFetching: false,
+      refetch: codexInfoRefetch,
+    } as any);
+    vi.mocked(useCliManagerCodexConfigQuery).mockReturnValue({
+      data: { config_dir: "/codex", can_open_config_dir: true },
+      isFetching: false,
+      refetch: codexConfigRefetch,
+    } as any);
+    vi.mocked(useCliManagerCodexConfigSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+    vi.mocked(useCliManagerCodexConfigTomlQuery).mockReturnValue({
+      data: { config_path: "/codex/config.toml", exists: true, toml: "" },
+      isFetching: false,
+      refetch: codexTomlRefetch,
+    } as any);
+    vi.mocked(useCliManagerCodexConfigTomlSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+    vi.mocked(useCliManagerGeminiInfoQuery).mockReturnValue({
+      data: null,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as any);
+
+    vi.mocked(cliProxyStatusAll).mockResolvedValue([
+      {
+        cli_key: "codex",
+        enabled: true,
+        base_origin: "http://127.0.0.1:40002",
+        applied_to_current_gateway: false,
+      },
+    ] as any);
+    vi.mocked(cliProxyRebindCodexHome).mockResolvedValue({
+      cli_key: "codex",
+      enabled: true,
+      ok: false,
+      trace_id: "trace-non-ok",
+      error_code: "CLI_PROXY_REBIND_APPLY_FAILED",
+      base_origin: "http://127.0.0.1:40002",
+      message: "rebind failed",
+    } as any);
+
+    const { client } = renderWithProviders(<CliManagerPage />);
+    client.setQueryData(cliProxyKeys.statusAll(), [
+      {
+        cli_key: "codex",
+        enabled: true,
+        base_origin: "http://127.0.0.1:37123",
+        applied_to_current_gateway: false,
+      },
+    ]);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Codex" }));
+    await screen.findByText("codex-tab");
+    fireEvent.click(screen.getByRole("button", { name: "save-codex-home" }));
+
+    await waitFor(() => expect(cliProxyRebindCodexHome).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(toast).toHaveBeenCalledWith(
+        "Codex 目录已切换，但代理重绑失败；可稍后在首页点击“修复”重试"
+      )
+    );
+    await waitFor(() =>
+      expect(logToConsole).toHaveBeenCalledWith(
+        "warn",
+        "Codex Home 已切换，但 Codex 代理重绑失败",
+        expect.objectContaining({
+          error_code: "CLI_PROXY_REBIND_APPLY_FAILED",
+          message: "rebind failed",
+        })
+      )
+    );
+    await waitFor(() =>
+      expect(client.getQueryState(cliProxyKeys.statusAll())?.isInvalidated).toBe(true)
+    );
+  });
+
+  it("toasts and invalidates status cache when codex proxy rebind throws", async () => {
+    vi.mocked(toast).mockClear();
+    vi.mocked(cliProxyStatusAll).mockReset();
+    vi.mocked(cliProxyRebindCodexHome).mockReset();
+
+    vi.mocked(useSettingsQuery).mockReturnValue({
+      data: createAppSettings(),
+      isLoading: false,
+    } as any);
+    vi.mocked(useSettingsGatewayRectifierSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+    vi.mocked(useSettingsCircuitBreakerNoticeSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+    vi.mocked(useSettingsCodexSessionIdCompletionSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+
+    const commonMutation = { isPending: false, mutateAsync: vi.fn() };
+    commonMutation.mutateAsync.mockResolvedValue(
+      createAppSettings({
+        codex_home_mode: "custom",
+        codex_home_override: "D:\\Work\\CodexHome",
+      })
+    );
+    vi.mocked(useSettingsSetMutation).mockReturnValue(commonMutation as any);
+
+    vi.mocked(useCliManagerClaudeInfoQuery).mockReturnValue({
+      data: null,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as any);
+    vi.mocked(useCliManagerClaudeSettingsQuery).mockReturnValue({
+      data: null,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as any);
+    vi.mocked(useCliManagerClaudeSettingsSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+
+    const codexInfoRefetch = vi.fn().mockResolvedValue({ data: {} });
+    const codexConfigRefetch = vi.fn().mockResolvedValue({ data: {} });
+    const codexTomlRefetch = vi.fn().mockResolvedValue({ data: {} });
+    vi.mocked(useCliManagerCodexInfoQuery).mockReturnValue({
+      data: { found: true },
+      isFetching: false,
+      refetch: codexInfoRefetch,
+    } as any);
+    vi.mocked(useCliManagerCodexConfigQuery).mockReturnValue({
+      data: { config_dir: "/codex", can_open_config_dir: true },
+      isFetching: false,
+      refetch: codexConfigRefetch,
+    } as any);
+    vi.mocked(useCliManagerCodexConfigSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+    vi.mocked(useCliManagerCodexConfigTomlQuery).mockReturnValue({
+      data: { config_path: "/codex/config.toml", exists: true, toml: "" },
+      isFetching: false,
+      refetch: codexTomlRefetch,
+    } as any);
+    vi.mocked(useCliManagerCodexConfigTomlSetMutation).mockReturnValue({
+      isPending: false,
+      mutateAsync: vi.fn(),
+    } as any);
+    vi.mocked(useCliManagerGeminiInfoQuery).mockReturnValue({
+      data: null,
+      isFetching: false,
+      refetch: vi.fn(),
+    } as any);
+
+    vi.mocked(cliProxyStatusAll).mockResolvedValue([
+      {
+        cli_key: "codex",
+        enabled: true,
+        base_origin: "http://127.0.0.1:40002",
+        applied_to_current_gateway: false,
+      },
+    ] as any);
+    vi.mocked(cliProxyRebindCodexHome).mockRejectedValue(new Error("rebind boom"));
+
+    const { client } = renderWithProviders(<CliManagerPage />);
+    client.setQueryData(cliProxyKeys.statusAll(), [
+      {
+        cli_key: "codex",
+        enabled: true,
+        base_origin: "http://127.0.0.1:37123",
+        applied_to_current_gateway: false,
+      },
+    ]);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Codex" }));
+    await screen.findByText("codex-tab");
+    fireEvent.click(screen.getByRole("button", { name: "save-codex-home" }));
+
+    await waitFor(() => expect(cliProxyRebindCodexHome).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(toast).toHaveBeenCalledWith(
+        "Codex 目录已切换，但代理重绑失败；可稍后在首页点击“修复”重试"
+      )
+    );
+    await waitFor(() =>
+      expect(logToConsole).toHaveBeenCalledWith(
+        "warn",
+        "Codex Home 已切换，但 Codex 代理重绑失败",
+        expect.objectContaining({
+          error: "Error: rebind boom",
+        })
+      )
+    );
+    await waitFor(() =>
+      expect(client.getQueryState(cliProxyKeys.statusAll())?.isInvalidated).toBe(true)
     );
   });
 });

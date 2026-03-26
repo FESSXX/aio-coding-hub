@@ -222,7 +222,7 @@ pub(crate) async fn gateway_start(
         let app_for_sync = app.clone();
         let base_origin = base_origin.to_string();
         let _ = blocking::run("cli_proxy_sync_enabled_after_gateway_start", move || {
-            cli_proxy::sync_enabled(&app_for_sync, &base_origin)
+            cli_proxy::sync_enabled(&app_for_sync, &base_origin, true)
         })
         .await;
     }

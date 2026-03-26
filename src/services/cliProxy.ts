@@ -5,6 +5,7 @@ export type CliProxyStatus = {
   cli_key: CliKey;
   enabled: boolean;
   base_origin: string | null;
+  current_gateway_origin?: string | null;
   applied_to_current_gateway: boolean | null;
 };
 
@@ -29,8 +30,13 @@ export async function cliProxySetEnabled(input: { cli_key: CliKey; enabled: bool
   });
 }
 
-export async function cliProxySyncEnabled(base_origin: string) {
+export async function cliProxySyncEnabled(base_origin: string, options?: { apply_live?: boolean }) {
   return invokeService<CliProxyResult[]>("同步 CLI 代理状态失败", "cli_proxy_sync_enabled", {
     baseOrigin: base_origin,
+    applyLive: options?.apply_live,
   });
+}
+
+export async function cliProxyRebindCodexHome() {
+  return invokeService<CliProxyResult>("重绑 Codex 目录失败", "cli_proxy_rebind_codex_home");
 }

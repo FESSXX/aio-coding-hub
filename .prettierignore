@@ -1,6 +1,8 @@
 dist
 node_modules
+.serena
 src-tauri/target
+src-tauri/target-*
 src-tauri/target-check
 src-tauri/target-zcf
 src-tauri/gen

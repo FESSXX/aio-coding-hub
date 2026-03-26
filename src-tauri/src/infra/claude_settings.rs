@@ -100,7 +100,7 @@ pub struct ClaudeSettingsPatch {
 fn home_dir<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
 ) -> crate::shared::error::AppResult<PathBuf> {
-    crate::shared::user_home::home_dir(app)
+    crate::app_paths::home_dir(app)
 }
 
 fn claude_config_dir<R: tauri::Runtime>(

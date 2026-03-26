@@ -38,7 +38,7 @@ fn validate_cli_key(cli_key: &str) -> Result<(), String> {
 }
 
 fn home_dir(app: &tauri::AppHandle) -> crate::shared::error::AppResult<PathBuf> {
-    crate::shared::user_home::home_dir(app)
+    crate::app_paths::home_dir(app)
 }
 
 fn prompt_target_path(

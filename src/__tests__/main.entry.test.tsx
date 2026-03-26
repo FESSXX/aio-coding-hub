@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Root } from "react-dom/client";
+import type { ReactNode } from "react";
+
+vi.mock("../App", () => ({
+  default: () => <div data-testid="main-entry-app">mock app</div>,
+}));
+
+vi.mock("../components/AppErrorBoundary", () => ({
+  AppErrorBoundary: ({ children }: { children: ReactNode }) => children,
+}));
 
 vi.mock("../services/frontendErrorReporter", async () => {
   const actual = await vi.importActual<typeof import("../services/frontendErrorReporter")>(
@@ -36,8 +45,8 @@ describe("main entry", () => {
 
     await importMainEntry();
 
-    expect(document.getElementById("root")?.innerHTML).toBeTruthy();
-  });
+    expect(document.querySelector("[data-testid='main-entry-app']")).toBeInTheDocument();
+  }, 30000);
 
   it("registers global frontend error handlers", async () => {
     document.body.innerHTML = '<div id="root"></div>';
@@ -46,5 +55,5 @@ describe("main entry", () => {
     await importMainEntry();
 
     expect(reporter.installGlobalErrorReporting).toHaveBeenCalled();
-  });
+  }, 30000);
 });

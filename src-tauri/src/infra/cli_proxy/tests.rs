@@ -1,5 +1,7 @@
 use super::*;
+use crate::infra::settings::{self, AppSettings, CodexHomeMode};
 use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
@@ -125,6 +127,36 @@ fn write_codex_proxy_files<R: tauri::Runtime>(app: &tauri::AppHandle<R>, base_or
 
     let auth = build_codex_auth_json(None).expect("build codex auth");
     std::fs::write(&auth_path, auth).expect("write auth");
+}
+
+fn set_custom_codex_home<R: tauri::Runtime>(app: &tauri::AppHandle<R>, codex_home: &Path) {
+    let settings = AppSettings {
+        codex_home_mode: CodexHomeMode::Custom,
+        codex_home_override: codex_home.display().to_string(),
+        ..AppSettings::default()
+    };
+    settings::write(app, &settings).expect("write settings");
+}
+
+fn write_codex_direct_files<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    config: &str,
+    auth: &str,
+) {
+    let config_path = codex_config_path(app).expect("codex config path");
+    let auth_path = codex_auth_path(app).expect("codex auth path");
+    std::fs::create_dir_all(config_path.parent().expect("config parent"))
+        .expect("create config dir");
+    std::fs::write(&config_path, config).expect("write direct config");
+    std::fs::write(&auth_path, auth).expect("write direct auth");
+}
+
+fn manifest_entry<'a>(manifest: &'a CliProxyManifest, kind: &str) -> &'a BackupFileEntry {
+    manifest
+        .files
+        .iter()
+        .find(|entry| entry.kind == kind)
+        .unwrap_or_else(|| panic!("missing manifest entry for kind={kind}"))
 }
 
 #[test]
@@ -354,7 +386,7 @@ fn codex_proxy_auth_json_rejects_non_object_root() {
 }
 
 #[test]
-fn status_all_reports_applied_to_current_gateway_for_enabled_codex() {
+fn status_all_skips_gateway_check_when_gateway_not_running_even_if_codex_is_applied() {
     let app = CliProxyTestApp::new();
     let handle = app.handle();
     let base_origin = "http://127.0.0.1:37123";
@@ -362,7 +394,7 @@ fn status_all_reports_applied_to_current_gateway_for_enabled_codex() {
     write_cli_proxy_manifest(&handle, "codex", true, Some(base_origin));
     write_codex_proxy_files(&handle, base_origin);
 
-    let rows = status_all(&handle).expect("status_all");
+    let rows = status_all(&handle, None).expect("status_all");
     let codex = rows
         .into_iter()
         .find(|row| row.cli_key == "codex")
@@ -370,11 +402,11 @@ fn status_all_reports_applied_to_current_gateway_for_enabled_codex() {
 
     assert!(codex.enabled);
     assert_eq!(codex.base_origin.as_deref(), Some(base_origin));
-    assert_eq!(codex.applied_to_current_gateway, Some(true));
+    assert_eq!(codex.applied_to_current_gateway, None);
 }
 
 #[test]
-fn status_all_reports_drift_when_enabled_codex_no_longer_points_to_gateway() {
+fn status_all_skips_gateway_check_when_gateway_not_running_even_if_codex_has_drifted() {
     let app = CliProxyTestApp::new();
     let handle = app.handle();
     let base_origin = "http://127.0.0.1:37123";
@@ -382,7 +414,7 @@ fn status_all_reports_drift_when_enabled_codex_no_longer_points_to_gateway() {
     write_cli_proxy_manifest(&handle, "codex", true, Some(base_origin));
     write_codex_proxy_files(&handle, "http://127.0.0.1:9999");
 
-    let rows = status_all(&handle).expect("status_all");
+    let rows = status_all(&handle, None).expect("status_all");
     let codex = rows
         .into_iter()
         .find(|row| row.cli_key == "codex")
@@ -390,7 +422,7 @@ fn status_all_reports_drift_when_enabled_codex_no_longer_points_to_gateway() {
 
     assert!(codex.enabled);
     assert_eq!(codex.base_origin.as_deref(), Some(base_origin));
-    assert_eq!(codex.applied_to_current_gateway, Some(false));
+    assert_eq!(codex.applied_to_current_gateway, None);
 }
 
 #[test]
@@ -402,7 +434,7 @@ fn status_all_skips_gateway_application_check_for_disabled_codex() {
     write_cli_proxy_manifest(&handle, "codex", false, Some(base_origin));
     write_codex_proxy_files(&handle, base_origin);
 
-    let rows = status_all(&handle).expect("status_all");
+    let rows = status_all(&handle, None).expect("status_all");
     let codex = rows
         .into_iter()
         .find(|row| row.cli_key == "codex")
@@ -411,6 +443,503 @@ fn status_all_skips_gateway_application_check_for_disabled_codex() {
     assert!(!codex.enabled);
     assert_eq!(codex.base_origin.as_deref(), Some(base_origin));
     assert_eq!(codex.applied_to_current_gateway, None);
+}
+
+#[test]
+fn status_all_prefers_current_gateway_origin_when_available() {
+    let app = CliProxyTestApp::new();
+    let handle = app.handle();
+    let manifest_origin = "http://127.0.0.1:37123";
+    let current_origin = "http://127.0.0.1:37125";
+
+    write_cli_proxy_manifest(&handle, "codex", true, Some(manifest_origin));
+    write_codex_proxy_files(&handle, current_origin);
+
+    let rows = status_all(&handle, Some(current_origin)).expect("status_all");
+    let codex = rows
+        .into_iter()
+        .find(|row| row.cli_key == "codex")
+        .expect("codex row");
+
+    assert!(codex.enabled);
+    assert_eq!(codex.base_origin.as_deref(), Some(manifest_origin));
+    assert_eq!(
+        codex.current_gateway_origin.as_deref(),
+        Some(current_origin)
+    );
+    assert_eq!(codex.applied_to_current_gateway, Some(true));
+}
+
+#[test]
+fn status_all_reports_drift_against_current_gateway_origin() {
+    let app = CliProxyTestApp::new();
+    let handle = app.handle();
+    let manifest_origin = "http://127.0.0.1:37123";
+    let current_origin = "http://127.0.0.1:37125";
+
+    write_cli_proxy_manifest(&handle, "codex", true, Some(manifest_origin));
+    write_codex_proxy_files(&handle, manifest_origin);
+
+    let rows = status_all(&handle, Some(current_origin)).expect("status_all");
+    let codex = rows
+        .into_iter()
+        .find(|row| row.cli_key == "codex")
+        .expect("codex row");
+
+    assert!(codex.enabled);
+    assert_eq!(codex.base_origin.as_deref(), Some(manifest_origin));
+    assert_eq!(
+        codex.current_gateway_origin.as_deref(),
+        Some(current_origin)
+    );
+    assert_eq!(codex.applied_to_current_gateway, Some(false));
+}
+
+#[test]
+fn sync_enabled_rebases_codex_manifest_when_codex_home_changes() {
+    let app = CliProxyTestApp::new();
+    let handle = app.handle();
+    let base_origin = "http://127.0.0.1:37123";
+
+    let old_codex_home = app.home.path().join("codex-old");
+    let new_codex_home = app.home.path().join("codex-new");
+
+    let old_config = r#"[model_providers.openai]
+name = "openai"
+base_url = "https://old.example/v1"
+
+[old_section]
+marker = "old"
+"#;
+    let old_auth = r#"{
+  "tokens": { "access": "old-token" },
+  "profile": "old"
+}"#;
+    let new_config = r#"[model_providers.openai]
+name = "openai"
+base_url = "https://new.example/v1"
+
+[new_section]
+marker = "new"
+"#;
+    let new_auth = r#"{
+  "tokens": { "access": "new-token" },
+  "profile": "new"
+}"#;
+
+    set_custom_codex_home(&handle, &old_codex_home);
+    write_codex_direct_files(&handle, old_config, old_auth);
+    let old_config_path = codex_config_path(&handle).expect("old config path");
+    let old_auth_path = codex_auth_path(&handle).expect("old auth path");
+
+    let enabled = set_enabled(&handle, "codex", true, base_origin).expect("enable codex");
+    assert!(enabled.ok, "{enabled:?}");
+
+    set_custom_codex_home(&handle, &new_codex_home);
+    write_codex_direct_files(&handle, new_config, new_auth);
+    let new_config_path = codex_config_path(&handle).expect("new config path");
+    let new_auth_path = codex_auth_path(&handle).expect("new auth path");
+
+    assert_ne!(old_config_path, new_config_path);
+    assert_ne!(old_auth_path, new_auth_path);
+
+    let sync_rows = sync_enabled(&handle, base_origin, false).expect("sync enabled");
+    let codex_row = sync_rows
+        .into_iter()
+        .find(|row| row.cli_key == "codex")
+        .expect("codex sync result");
+    assert!(codex_row.ok, "{codex_row:?}");
+    assert_eq!(codex_row.message, "已重绑 Codex 目录基线，待网关启动后接管");
+
+    let manifest = read_manifest(&handle, "codex")
+        .expect("read manifest")
+        .expect("manifest exists");
+    let config_entry = manifest_entry(&manifest, "codex_config_toml");
+    let auth_entry = manifest_entry(&manifest, "codex_auth_json");
+
+    assert_eq!(manifest.base_origin.as_deref(), Some(base_origin));
+    assert_eq!(PathBuf::from(&config_entry.path), new_config_path);
+    assert_eq!(PathBuf::from(&auth_entry.path), new_auth_path);
+
+    let rebound_config = std::fs::read_to_string(&new_config_path).expect("read rebound config");
+    let rebound_auth = std::fs::read_to_string(&new_auth_path).expect("read rebound auth");
+    let rebound_auth_json: serde_json::Value =
+        serde_json::from_str(&rebound_auth).expect("parse rebound auth");
+
+    assert!(
+        rebound_config.contains("[new_section]"),
+        "offline rebind should keep direct config in target file: {rebound_config}"
+    );
+    assert!(
+        !rebound_config.contains("model_provider = \"aio\""),
+        "offline rebind should not rewrite target config to proxy: {rebound_config}"
+    );
+    assert_eq!(
+        rebound_auth_json
+            .get("profile")
+            .and_then(|value| value.as_str()),
+        Some("new"),
+        "offline rebind should keep direct auth in target file: {rebound_auth}"
+    );
+    assert!(
+        rebound_auth_json.get("OPENAI_API_KEY").is_none(),
+        "offline rebind should not inject proxy auth into target file: {rebound_auth}"
+    );
+
+    let root = cli_proxy_root_dir(&handle, "codex").expect("codex root");
+    let files_dir = cli_proxy_files_dir(&root);
+    let config_backup =
+        std::fs::read_to_string(files_dir.join("config.toml")).expect("read config backup");
+    let auth_backup =
+        std::fs::read_to_string(files_dir.join("auth.json")).expect("read auth backup");
+    let auth_backup_json: serde_json::Value =
+        serde_json::from_str(&auth_backup).expect("parse auth backup");
+
+    assert!(
+        config_backup.contains("[new_section]"),
+        "config backup should be rebound to new baseline: {config_backup}"
+    );
+    assert!(
+        !config_backup.contains("[old_section]"),
+        "config backup should stop using old baseline: {config_backup}"
+    );
+    assert_eq!(
+        auth_backup_json
+            .get("profile")
+            .and_then(|value| value.as_str()),
+        Some("new"),
+        "auth backup should be rebound to new baseline: {auth_backup}"
+    );
+}
+
+#[test]
+fn sync_enabled_rebinds_and_applies_proxy_when_apply_live_true() {
+    let app = CliProxyTestApp::new();
+    let handle = app.handle();
+    let base_origin = "http://127.0.0.1:37123";
+
+    let old_codex_home = app.home.path().join("codex-old");
+    let new_codex_home = app.home.path().join("codex-new");
+
+    let old_config = r#"[model_providers.openai]
+name = "openai"
+base_url = "https://old.example/v1"
+
+[old_section]
+marker = "old"
+"#;
+    let old_auth = r#"{
+  "tokens": { "access": "old-token" },
+  "profile": "old"
+}"#;
+    let new_config = r#"[model_providers.openai]
+name = "openai"
+base_url = "https://new.example/v1"
+
+[new_section]
+marker = "new"
+"#;
+    let new_auth = r#"{
+  "tokens": { "access": "new-token" },
+  "profile": "new"
+}"#;
+
+    set_custom_codex_home(&handle, &old_codex_home);
+    write_codex_direct_files(&handle, old_config, old_auth);
+
+    let enabled = set_enabled(&handle, "codex", true, base_origin).expect("enable codex");
+    assert!(enabled.ok, "{enabled:?}");
+
+    set_custom_codex_home(&handle, &new_codex_home);
+    write_codex_direct_files(&handle, new_config, new_auth);
+    let new_config_path = codex_config_path(&handle).expect("new config path");
+    let new_auth_path = codex_auth_path(&handle).expect("new auth path");
+
+    let sync_rows = sync_enabled(&handle, base_origin, true).expect("sync enabled");
+    let codex_row = sync_rows
+        .into_iter()
+        .find(|row| row.cli_key == "codex")
+        .expect("codex sync result");
+    assert!(codex_row.ok, "{codex_row:?}");
+    assert_eq!(codex_row.message, "已重绑 Codex 目录并写入当前网关配置");
+
+    let rebound_config = std::fs::read_to_string(&new_config_path).expect("read rebound config");
+    let rebound_auth = std::fs::read_to_string(&new_auth_path).expect("read rebound auth");
+    let rebound_auth_json: serde_json::Value =
+        serde_json::from_str(&rebound_auth).expect("parse rebound auth");
+
+    assert!(
+        rebound_config.contains("model_provider = \"aio\""),
+        "live rebind should rewrite target config to proxy: {rebound_config}"
+    );
+    assert!(
+        rebound_config.contains(&format!("{base_origin}/v1")),
+        "live rebind should point target config to current gateway: {rebound_config}"
+    );
+    assert_eq!(
+        rebound_auth_json
+            .get("OPENAI_API_KEY")
+            .and_then(|value| value.as_str()),
+        Some("aio-coding-hub"),
+        "live rebind should inject proxy auth into target file: {rebound_auth}"
+    );
+    assert_eq!(
+        rebound_auth_json
+            .get("auth_mode")
+            .and_then(|value| value.as_str()),
+        Some("apikey"),
+        "live rebind should mark auth mode for gateway auth: {rebound_auth}"
+    );
+
+    let manifest = read_manifest(&handle, "codex")
+        .expect("read manifest")
+        .expect("manifest exists");
+    assert_eq!(manifest.base_origin.as_deref(), Some(base_origin));
+    assert_eq!(
+        PathBuf::from(&manifest_entry(&manifest, "codex_config_toml").path),
+        new_config_path
+    );
+    assert_eq!(
+        PathBuf::from(&manifest_entry(&manifest, "codex_auth_json").path),
+        new_auth_path
+    );
+}
+
+#[test]
+fn disabling_codex_after_rebind_restores_new_target_path_only() {
+    let app = CliProxyTestApp::new();
+    let handle = app.handle();
+    let base_origin = "http://127.0.0.1:37123";
+
+    let old_codex_home = app.home.path().join("codex-old");
+    let new_codex_home = app.home.path().join("codex-new");
+
+    let old_config = r#"[model_providers.openai]
+name = "openai"
+base_url = "https://old.example/v1"
+
+[old_section]
+marker = "old"
+"#;
+    let old_auth = r#"{
+  "tokens": { "access": "old-token" },
+  "profile": "old"
+}"#;
+    let new_config = r#"[model_providers.openai]
+name = "openai"
+base_url = "https://new.example/v1"
+
+[new_section]
+marker = "new"
+"#;
+    let new_auth = r#"{
+  "tokens": { "access": "new-token" },
+  "profile": "new"
+}"#;
+
+    set_custom_codex_home(&handle, &old_codex_home);
+    write_codex_direct_files(&handle, old_config, old_auth);
+    let old_config_path = codex_config_path(&handle).expect("old config path");
+    let old_auth_path = codex_auth_path(&handle).expect("old auth path");
+
+    let enabled = set_enabled(&handle, "codex", true, base_origin).expect("enable codex");
+    assert!(enabled.ok, "{enabled:?}");
+
+    set_custom_codex_home(&handle, &new_codex_home);
+    write_codex_direct_files(&handle, new_config, new_auth);
+    let new_config_path = codex_config_path(&handle).expect("new config path");
+    let new_auth_path = codex_auth_path(&handle).expect("new auth path");
+
+    let sync_rows = sync_enabled(&handle, base_origin, false).expect("sync enabled");
+    let codex_row = sync_rows
+        .into_iter()
+        .find(|row| row.cli_key == "codex")
+        .expect("codex sync result");
+    assert!(codex_row.ok, "{codex_row:?}");
+    assert_eq!(codex_row.message, "已重绑 Codex 目录基线，待网关启动后接管");
+
+    let old_config_before_disable =
+        std::fs::read_to_string(&old_config_path).expect("read old config before disable");
+    let old_auth_before_disable =
+        std::fs::read_to_string(&old_auth_path).expect("read old auth before disable");
+
+    let disabled = set_enabled(&handle, "codex", false, base_origin).expect("disable codex");
+    assert!(disabled.ok, "{disabled:?}");
+
+    let old_config_after_disable =
+        std::fs::read_to_string(&old_config_path).expect("read old config after disable");
+    let old_auth_after_disable =
+        std::fs::read_to_string(&old_auth_path).expect("read old auth after disable");
+    let new_config_after_disable =
+        std::fs::read_to_string(&new_config_path).expect("read new config after disable");
+    let new_auth_after_disable =
+        std::fs::read_to_string(&new_auth_path).expect("read new auth after disable");
+    let new_auth_json: serde_json::Value =
+        serde_json::from_str(&new_auth_after_disable).expect("parse new auth after disable");
+
+    assert_eq!(
+        old_config_after_disable, old_config_before_disable,
+        "old codex_home config should stay untouched after rebind disable"
+    );
+    assert_eq!(
+        old_auth_after_disable, old_auth_before_disable,
+        "old codex_home auth should stay untouched after rebind disable"
+    );
+
+    assert!(
+        new_config_after_disable.contains("[new_section]"),
+        "new codex_home config should restore new baseline: {new_config_after_disable}"
+    );
+    assert!(
+        !new_config_after_disable.contains("model_provider = \"aio\""),
+        "new codex_home config should no longer point to proxy: {new_config_after_disable}"
+    );
+    assert_eq!(
+        new_auth_json
+            .get("profile")
+            .and_then(|value| value.as_str()),
+        Some("new"),
+        "new codex_home auth should restore new baseline: {new_auth_after_disable}"
+    );
+    assert!(
+        new_auth_json.get("tokens").is_some(),
+        "new codex_home auth should restore direct tokens: {new_auth_after_disable}"
+    );
+    assert!(
+        new_auth_json.get("OPENAI_API_KEY").is_none(),
+        "new codex_home auth should remove proxy API key: {new_auth_after_disable}"
+    );
+    assert!(
+        new_auth_json.get("auth_mode").is_none(),
+        "new codex_home auth should remove proxy auth mode: {new_auth_after_disable}"
+    );
+}
+
+#[test]
+fn rebind_codex_home_adopts_existing_proxy_target_and_disable_restores_new_target_path() {
+    let app = CliProxyTestApp::new();
+    let handle = app.handle();
+    let base_origin = "http://127.0.0.1:37123";
+
+    let old_codex_home = app.home.path().join("codex-old");
+    let new_codex_home = app.home.path().join("codex-new");
+
+    let old_config = r#"[model_providers.openai]
+name = "openai"
+base_url = "https://old.example/v1"
+
+[old_section]
+marker = "old"
+"#;
+    let old_auth = r#"{
+  "tokens": { "access": "old-token" },
+  "profile": "old"
+}"#;
+
+    set_custom_codex_home(&handle, &old_codex_home);
+    write_codex_direct_files(&handle, old_config, old_auth);
+    let old_config_path = codex_config_path(&handle).expect("old config path");
+    let old_auth_path = codex_auth_path(&handle).expect("old auth path");
+
+    let enabled = set_enabled(&handle, "codex", true, base_origin).expect("enable codex");
+    assert!(enabled.ok, "{enabled:?}");
+
+    let old_proxy_config_before_rebind =
+        std::fs::read_to_string(&old_config_path).expect("read old proxy config");
+    let old_proxy_auth_before_rebind =
+        std::fs::read_to_string(&old_auth_path).expect("read old proxy auth");
+
+    let root = cli_proxy_root_dir(&handle, "codex").expect("codex root");
+    let files_dir = cli_proxy_files_dir(&root);
+    let config_backup_before_rebind =
+        std::fs::read_to_string(files_dir.join("config.toml")).expect("read config backup");
+    let auth_backup_before_rebind =
+        std::fs::read_to_string(files_dir.join("auth.json")).expect("read auth backup");
+
+    set_custom_codex_home(&handle, &new_codex_home);
+    write_codex_proxy_files(&handle, base_origin);
+    let new_config_path = codex_config_path(&handle).expect("new config path");
+    let new_auth_path = codex_auth_path(&handle).expect("new auth path");
+
+    let rebound = rebind_codex_home_after_change(&handle, base_origin, true).expect("rebind");
+    assert!(rebound.ok, "{rebound:?}");
+    assert_eq!(rebound.message, "已重绑 Codex 目录并写入当前网关配置");
+
+    let manifest = read_manifest(&handle, "codex")
+        .expect("read manifest")
+        .expect("manifest exists");
+    assert_eq!(manifest.base_origin.as_deref(), Some(base_origin));
+    assert_eq!(
+        PathBuf::from(&manifest_entry(&manifest, "codex_config_toml").path),
+        new_config_path
+    );
+    assert_eq!(
+        PathBuf::from(&manifest_entry(&manifest, "codex_auth_json").path),
+        new_auth_path
+    );
+
+    let config_backup_after_rebind =
+        std::fs::read_to_string(files_dir.join("config.toml")).expect("read config backup");
+    let auth_backup_after_rebind =
+        std::fs::read_to_string(files_dir.join("auth.json")).expect("read auth backup");
+    assert_eq!(
+        config_backup_after_rebind, config_backup_before_rebind,
+        "adopting an existing proxy target must keep the original direct config backup"
+    );
+    assert_eq!(
+        auth_backup_after_rebind, auth_backup_before_rebind,
+        "adopting an existing proxy target must keep the original direct auth backup"
+    );
+
+    let disabled = set_enabled(&handle, "codex", false, base_origin).expect("disable codex");
+    assert!(disabled.ok, "{disabled:?}");
+
+    let old_config_after_disable =
+        std::fs::read_to_string(&old_config_path).expect("read old config after disable");
+    let old_auth_after_disable =
+        std::fs::read_to_string(&old_auth_path).expect("read old auth after disable");
+    let new_config_after_disable =
+        std::fs::read_to_string(&new_config_path).expect("read new config after disable");
+    let new_auth_after_disable =
+        std::fs::read_to_string(&new_auth_path).expect("read new auth after disable");
+    let new_auth_json: serde_json::Value =
+        serde_json::from_str(&new_auth_after_disable).expect("parse new auth after disable");
+
+    assert_eq!(
+        old_config_after_disable, old_proxy_config_before_rebind,
+        "old codex_home config should remain untouched after adopt + disable"
+    );
+    assert_eq!(
+        old_auth_after_disable, old_proxy_auth_before_rebind,
+        "old codex_home auth should remain untouched after adopt + disable"
+    );
+    assert!(
+        new_config_after_disable.contains("[old_section]"),
+        "new codex_home config should restore the original direct baseline: {new_config_after_disable}"
+    );
+    assert!(
+        !new_config_after_disable.contains("model_provider = \"aio\""),
+        "new codex_home config should no longer point to proxy after disable: {new_config_after_disable}"
+    );
+    assert_eq!(
+        new_auth_json
+            .get("profile")
+            .and_then(|value| value.as_str()),
+        Some("old"),
+        "new codex_home auth should restore the original direct baseline: {new_auth_after_disable}"
+    );
+    assert!(
+        new_auth_json.get("tokens").is_some(),
+        "new codex_home auth should restore direct tokens: {new_auth_after_disable}"
+    );
+    assert!(
+        new_auth_json.get("OPENAI_API_KEY").is_none(),
+        "new codex_home auth should remove proxy API key after disable: {new_auth_after_disable}"
+    );
+    assert!(
+        new_auth_json.get("auth_mode").is_none(),
+        "new codex_home auth should remove proxy auth mode after disable: {new_auth_after_disable}"
+    );
 }
 
 #[test]

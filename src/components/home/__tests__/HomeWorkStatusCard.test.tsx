@@ -85,6 +85,22 @@ describe("components/home/HomeWorkStatusCard", () => {
     expect(onSetCliProxyEnabled).toHaveBeenCalledWith("codex", true);
   });
 
+  it("does not show drift warning before the current gateway origin is known", () => {
+    render(
+      <HomeWorkStatusCard
+        cliProxyLoading={false}
+        cliProxyAvailable={true}
+        cliProxyEnabled={{ claude: false, codex: true, gemini: false } as any}
+        cliProxyAppliedToCurrentGateway={{ claude: null, codex: null, gemini: null } as any}
+        cliProxyToggling={{ claude: false, codex: false, gemini: false } as any}
+        onSetCliProxyEnabled={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByText("当前未指向本网关")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "修复 Codex 代理" })).not.toBeInTheDocument();
+  });
+
   it("keeps the switch available for drifted rows so users can still disable proxy", () => {
     const onSetCliProxyEnabled = vi.fn();
 

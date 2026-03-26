@@ -8,7 +8,7 @@ const ENV_CODEX_HOME: &str = "CODEX_HOME";
 fn home_dir<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
 ) -> crate::shared::error::AppResult<PathBuf> {
-    crate::shared::user_home::home_dir(app)
+    crate::app_paths::home_dir(app)
 }
 
 fn expand_tilde(home: &Path, raw: &str) -> Option<PathBuf> {

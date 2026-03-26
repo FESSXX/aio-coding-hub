@@ -436,14 +436,14 @@ fn prune_stale_claude_launch_artifacts(dir: &Path, now: std::time::SystemTime) {
 fn write_claude_launcher_file(
     path: &Path,
     content: impl AsRef<[u8]>,
-    executable: bool,
+    _executable: bool,
 ) -> crate::shared::error::AppResult<()> {
     std::fs::write(path, content)
         .map_err(|e| format!("SYSTEM_ERROR: write launcher asset failed: {e}"))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mode = if executable { 0o700 } else { 0o600 };
+        let mode = if _executable { 0o700 } else { 0o600 };
         let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode));
     }
     Ok(())

@@ -4,12 +4,30 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 use tempfile::TempDir;
 
 static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+const TEST_APP_DOTDIR_PREFIX: &str = ".aio-coding-hub-test-";
+const TEST_HOME_DIR_ENV: &str = "AIO_CODING_HUB_TEST_HOME";
 
 fn env_lock() -> MutexGuard<'static, ()> {
     let mutex = ENV_LOCK.get_or_init(|| Mutex::new(()));
     mutex
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn test_app_dotdir_name(home: &std::path::Path) -> String {
+    let suffix = home
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map(|value| {
+            value
+                .chars()
+                .filter(|c| c.is_ascii_alphanumeric())
+                .collect::<String>()
+        })
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "isolated".to_string());
+
+    format!("{TEST_APP_DOTDIR_PREFIX}{suffix}")
 }
 
 #[derive(Default)]
@@ -52,6 +70,8 @@ pub struct TestApp {
     _env: EnvRestore,
     #[allow(dead_code)]
     home: TempDir,
+    #[allow(dead_code)]
+    app_dotdir_name: String,
     app: tauri::App<tauri::test::MockRuntime>,
 }
 
@@ -62,14 +82,16 @@ impl TestApp {
 
         let mut env = EnvRestore::default();
         let home_os = home.path().as_os_str().to_os_string();
+        let app_dotdir_name = test_app_dotdir_name(home.path());
 
         env.set_var("HOME", home_os.clone());
         env.set_var("AIO_CODING_HUB_HOME_DIR", home_os.clone());
         // Windows fallback env for `dirs`/tauri path resolution.
         env.set_var("USERPROFILE", home_os);
+        env.set_var(TEST_HOME_DIR_ENV, home.path().as_os_str().to_os_string());
 
         // Ensure app data stays within the isolated HOME.
-        env.set_var("AIO_CODING_HUB_DOTDIR_NAME", ".aio-coding-hub-test");
+        env.set_var("AIO_CODING_HUB_DOTDIR_NAME", app_dotdir_name.clone());
 
         // Default to ~/.codex for deterministic codex_paths behavior.
         env.remove_var("CODEX_HOME");
@@ -83,6 +105,7 @@ impl TestApp {
             _lock: lock,
             _env: env,
             home,
+            app_dotdir_name,
             app,
         }
     }
@@ -94,6 +117,11 @@ impl TestApp {
     #[allow(dead_code)]
     pub fn home_dir(&self) -> &std::path::Path {
         self.home.path()
+    }
+
+    #[allow(dead_code)]
+    pub fn app_dotdir_name(&self) -> &str {
+        &self.app_dotdir_name
     }
 }
 

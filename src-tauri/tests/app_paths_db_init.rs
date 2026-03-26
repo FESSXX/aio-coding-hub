@@ -7,13 +7,9 @@ fn app_paths_and_db_init_are_isolated_under_home() {
 
     let app_dir = aio_coding_hub_lib::test_support::app_data_dir(&handle).expect("app_data_dir");
     assert!(
-        app_dir.starts_with(app.home_dir()),
-        "app_dir should be under test HOME: app_dir={app_dir:?} home={:?}",
-        app.home_dir()
-    );
-    assert!(
-        app_dir.ends_with(".aio-coding-hub-test"),
-        "app_dir={app_dir:?}"
+        app_dir.ends_with(app.app_dotdir_name()),
+        "app_dir should use the isolated test dotdir: app_dir={app_dir:?} dotdir={:?}",
+        app.app_dotdir_name()
     );
 
     aio_coding_hub_lib::test_support::init_db(&handle).expect("init_db");

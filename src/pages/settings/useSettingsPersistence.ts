@@ -544,7 +544,7 @@ export function useSettingsPersistence(options: {
       if (portSettled) {
         if (!gateway?.running) {
           const baseOrigin = `http://127.0.0.1:${after.preferred_port}`;
-          const syncResults = await cliProxySyncEnabled(baseOrigin);
+          const syncResults = await cliProxySyncEnabled(baseOrigin, { apply_live: false });
           if (syncResults) {
             const okCount = syncResults.filter((r) => r.ok).length;
             logToConsole("info", "端口变更，已同步 CLI 代理配置", {
@@ -576,7 +576,7 @@ export function useSettingsPersistence(options: {
 
           const baseOrigin =
             started.base_url ?? `http://127.0.0.1:${started.port ?? after.preferred_port}`;
-          const syncResults = await cliProxySyncEnabled(baseOrigin);
+          const syncResults = await cliProxySyncEnabled(baseOrigin, { apply_live: true });
           if (syncResults) {
             const okCount = syncResults.filter((r) => r.ok).length;
             logToConsole("info", "端口变更，已同步 CLI 代理配置", {

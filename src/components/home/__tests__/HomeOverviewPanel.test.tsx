@@ -31,6 +31,81 @@ vi.mock("../HomeProviderLimitPanel", () => ({
   ),
 }));
 
+vi.mock("../HomeWorkspaceConfigPanel", () => ({
+  HomeWorkspaceConfigPanel: ({
+    configs,
+    selectedCliKey,
+    onSelectCliKey,
+    sortModes,
+    activeModeByCli,
+    onSetCliActiveMode,
+  }: {
+    configs: Array<{
+      cliKey: "claude" | "codex" | "gemini";
+      cliLabel: string;
+      workspaceName: string | null;
+      items: Array<{ id: string; name: string }>;
+    }>;
+    selectedCliKey: "claude" | "codex" | "gemini";
+    onSelectCliKey: (cliKey: "claude" | "codex" | "gemini") => void;
+    sortModes: Array<{ id: number; name: string }>;
+    activeModeByCli: Record<"claude" | "codex" | "gemini", number | null>;
+    onSetCliActiveMode: (cliKey: "claude" | "codex" | "gemini", modeId: number | null) => void;
+  }) => {
+    const selectedConfig =
+      configs.find((config) => config.cliKey === selectedCliKey) ?? configs[0] ?? null;
+    const selectedModeValue = selectedConfig
+      ? String(activeModeByCli[selectedConfig.cliKey] ?? "")
+      : "";
+
+    if (!selectedConfig) {
+      return <div>workspace-config:empty</div>;
+    }
+
+    return (
+      <div>
+        <div>
+          {configs.map((config) => (
+            <button key={config.cliKey} type="button" onClick={() => onSelectCliKey(config.cliKey)}>
+              {config.cliLabel}
+            </button>
+          ))}
+        </div>
+        <div>
+          <span>工作区：</span>
+          <span>{selectedConfig.workspaceName?.trim() || "默认"}</span>
+        </div>
+        <label>
+          路由策略：
+          <select
+            aria-label={`${selectedConfig.cliLabel} 路由策略`}
+            value={selectedModeValue}
+            onChange={(event) => {
+              const nextValue = event.currentTarget.value;
+              onSetCliActiveMode(
+                selectedConfig.cliKey,
+                nextValue === "" ? null : Number(nextValue)
+              );
+            }}
+          >
+            <option value="">Default</option>
+            {sortModes.map((mode) => (
+              <option key={mode.id} value={String(mode.id)}>
+                {mode.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div>
+          {selectedConfig.items.map((item) => (
+            <div key={item.id}>{item.name}</div>
+          ))}
+        </div>
+      </div>
+    );
+  },
+}));
+
 vi.mock("../HomeRequestLogsPanel", () => ({
   HomeRequestLogsPanel: () => <div>request-logs</div>,
 }));
