@@ -459,6 +459,17 @@ fn run_version(exe: &Path) -> crate::shared::error::AppResult<String> {
     let mut cmd = Command::new(exe);
     cmd.arg("--version");
 
+    #[cfg(target_os = "macos")]
+    {
+        cmd.env(
+            "PATH",
+            format!(
+                "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:{}",
+                std::env::var("PATH").unwrap_or_default()
+            ),
+        );
+    }
+
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
