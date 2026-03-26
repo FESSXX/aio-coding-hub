@@ -52,8 +52,8 @@ fn codex_paths_prefers_settings_override_and_normalizes_config_toml_input() {
     let app = support::TestApp::new();
     let handle = app.handle();
 
-    // Clean env to avoid interference from other tests
-    std::env::remove_var("CODEX_HOME");
+    // 即使存在 CODEX_HOME，自定义模式也应优先使用 settings 中的 override。
+    std::env::set_var("CODEX_HOME", "env-codex-home");
 
     let mut settings =
         aio_coding_hub_lib::test_support::settings_get_json(&handle).expect("read defaults");
@@ -68,6 +68,8 @@ fn codex_paths_prefers_settings_override_and_normalizes_config_toml_input() {
         path,
         app.home_dir().join("custom-codex").join("config.toml")
     );
+
+    std::env::remove_var("CODEX_HOME");
 }
 
 #[test]

@@ -45,6 +45,7 @@ const GPT_54_MODEL = "gpt-5.4";
 const GPT_54_CONTEXT_WINDOW = 1_000_000;
 const GPT_54_AUTO_COMPACT_TOKEN_LIMIT = 900_000;
 const FAST_SERVICE_TIER = "fast";
+type PersistConfigLocationResult = "saved" | "validation_failed" | "persist_failed";
 
 function buildModelPatch(
   model: string,
@@ -218,6 +219,7 @@ export function CliManagerCodexTab({
 
   const validateSeqRef = useRef(0);
   const validateTimerRef = useRef<number | null>(null);
+  const lastTomlConfigPathRef = useRef<string | null>(null);
 
   const validateToml = useCallback(
     async (toml: string): Promise<CodexConfigTomlValidationResult | null> => {
@@ -265,6 +267,20 @@ export function CliManagerCodexTab({
     setCustomHomeText(savedOverride);
     setConfigLocationError(null);
   }, [appSettings?.codex_home_mode, appSettings?.codex_home_override]);
+
+  function readSavedConfigLocationState() {
+    const savedOverride = appSettings?.codex_home_override?.trim() ?? "";
+    const savedMode =
+      appSettings?.codex_home_mode ?? (savedOverride ? "custom" : "user_home_default");
+    return { savedMode, savedOverride };
+  }
+
+  function restoreSavedConfigLocationState() {
+    const { savedMode, savedOverride } = readSavedConfigLocationState();
+    setConfigLocationMode(savedMode);
+    setCustomHomeText(savedOverride);
+    setConfigLocationError(null);
+  }
 
   const saving = codexConfigSaving;
   const loading = codexLoading || codexConfigLoading;
@@ -405,6 +421,32 @@ export function CliManagerCodexTab({
   ]);
 
   useEffect(() => {
+    const nextPath = codexConfigToml?.config_path ?? null;
+    const prevPath = lastTomlConfigPathRef.current;
+
+    if (!nextPath) {
+      lastTomlConfigPathRef.current = null;
+      return;
+    }
+
+    if (prevPath && prevPath !== nextPath) {
+      if (validateTimerRef.current) {
+        window.clearTimeout(validateTimerRef.current);
+        validateTimerRef.current = null;
+      }
+
+      validateSeqRef.current += 1;
+      setTomlDraft(codexConfigToml?.toml ?? "");
+      setTomlDirty(false);
+      setTomlValidating(false);
+      setTomlValidation(null);
+      setTomlEditEnabled(false);
+    }
+
+    lastTomlConfigPathRef.current = nextPath;
+  }, [codexConfigToml?.config_path, codexConfigToml?.toml]);
+
+  useEffect(() => {
     if (!codexConfigToml) return;
     if (tomlDirty) return;
     setTomlDraft(codexConfigToml.toml ?? "");
@@ -444,47 +486,67 @@ export function CliManagerCodexTab({
     setTomlDirty(false);
   }
 
-  async function persistConfigLocation(nextMode: CodexHomeMode, nextCustomHome = customHomeText) {
-    if (!persistCodexHomeSettings) return false;
+  async function persistConfigLocation(
+    nextMode: CodexHomeMode,
+    nextCustomHome = customHomeText
+  ): Promise<PersistConfigLocationResult> {
+    if (!persistCodexHomeSettings) return "persist_failed";
 
     const trimmed = nextCustomHome.trim();
     const normalized = normalizeCustomCodexHome(trimmed);
     if (nextMode === "custom") {
       const error = validateCustomCodexHome(trimmed);
       setConfigLocationError(error);
-      if (error) return false;
+      if (error) return "validation_failed";
     } else {
       setConfigLocationError(null);
     }
 
     const nextOverride = nextMode === "custom" ? normalized : "";
     const saved = Boolean(await persistCodexHomeSettings(nextMode, nextOverride));
-    if (saved) {
-      setCustomHomeText(nextMode === "custom" ? nextOverride : "");
+    if (!saved) {
+      return "persist_failed";
     }
-    return saved;
+
+    setConfigLocationMode(nextMode);
+    setCustomHomeText(nextMode === "custom" ? nextOverride : "");
+    setConfigLocationError(null);
+    return "saved";
   }
 
-  function handleConfigLocationModeChange(nextMode: CodexHomeMode) {
+  async function handleConfigLocationModeChange(nextMode: CodexHomeMode) {
     setConfigLocationMode(nextMode);
 
     if (nextMode !== "custom") {
-      void persistConfigLocation(nextMode, "");
+      setCustomHomeText("");
+      setConfigLocationError(null);
+      const result = await persistConfigLocation(nextMode, "");
+      if (result === "persist_failed") {
+        restoreSavedConfigLocationState();
+      }
       return;
     }
 
     const error = validateCustomCodexHome(customHomeText);
     setConfigLocationError(error);
-    if (!error) {
-      void persistConfigLocation("custom", customHomeText);
+    if (error) {
+      return;
+    }
+
+    const result = await persistConfigLocation("custom", customHomeText);
+    if (result === "persist_failed") {
+      restoreSavedConfigLocationState();
     }
   }
 
-  function resetConfigLocation() {
+  async function resetConfigLocation() {
     setConfigLocationMode("user_home_default");
     setCustomHomeText("");
     setConfigLocationError(null);
-    void persistConfigLocation("user_home_default", "");
+    const result = await persistConfigLocation("user_home_default", "");
+    if (result === "persist_failed") {
+      restoreSavedConfigLocationState();
+    }
   }
 
   async function handlePickCustomHome() {
@@ -502,8 +564,13 @@ export function CliManagerCodexTab({
 
       const error = validateCustomCodexHome(normalized);
       setConfigLocationError(error);
-      if (!error) {
-        await persistConfigLocation("custom", normalized);
+      if (error) {
+        return;
+      }
+
+      const result = await persistConfigLocation("custom", normalized);
+      if (result === "persist_failed") {
+        restoreSavedConfigLocationState();
       }
     } finally {
       setSelectingCodexHomeDir(false);
@@ -769,7 +836,11 @@ export function CliManagerCodexTab({
                           }}
                           onBlur={() => {
                             if (configLocationMode !== "custom") return;
-                            void persistConfigLocation("custom", customHomeText);
+                            void persistConfigLocation("custom", customHomeText).then((result) => {
+                              if (result === "persist_failed") {
+                                restoreSavedConfigLocationState();
+                              }
+                            });
                           }}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") e.currentTarget.blur();

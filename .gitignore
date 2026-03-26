@@ -37,5 +37,7 @@ coverage/
 .cursor/
 .trellis/
 .agents/
+.serena/
 src/templates/
 .codex/
+src-tauri/target*/

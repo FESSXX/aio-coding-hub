@@ -43,7 +43,7 @@ fn local_skills_are_stashed_and_restored_per_workspace() {
 
     let stash_dir = app
         .home_dir()
-        .join(".aio-coding-hub-test")
+        .join(app.app_dotdir_name())
         .join("skills-local")
         .join("claude")
         .join("1")

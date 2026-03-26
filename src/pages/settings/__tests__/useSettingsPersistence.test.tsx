@@ -778,7 +778,11 @@ describe("settings/useSettingsPersistence", () => {
     });
 
     await waitFor(() => expect(mutation.mutateAsync).toHaveBeenCalled());
-    await waitFor(() => expect(cliProxySyncEnabled).toHaveBeenCalledWith("http://127.0.0.1:40000"));
+    await waitFor(() =>
+      expect(cliProxySyncEnabled).toHaveBeenCalledWith("http://127.0.0.1:40000", {
+        apply_live: false,
+      })
+    );
     expect(toast).toHaveBeenCalledWith("已同步 1/1 个 CLI 代理配置");
   });
 
@@ -841,7 +845,9 @@ describe("settings/useSettingsPersistence", () => {
     await waitFor(() => expect(gatewayStop).toHaveBeenCalled());
     await waitFor(() => expect(gatewayStart).toHaveBeenCalled());
 
-    expect(cliProxySyncEnabled).toHaveBeenCalledWith("http://127.0.0.1:40001");
+    expect(cliProxySyncEnabled).toHaveBeenCalledWith("http://127.0.0.1:40001", {
+      apply_live: true,
+    });
     expect(toast).toHaveBeenCalledWith("端口被占用，已切换到 40001");
     expect(toast).toHaveBeenCalledWith("已同步 1/2 个 CLI 代理配置");
   });
@@ -939,7 +945,11 @@ describe("settings/useSettingsPersistence", () => {
       });
     });
 
-    await waitFor(() => expect(cliProxySyncEnabled).toHaveBeenCalledWith("http://127.0.0.1:40002"));
+    await waitFor(() =>
+      expect(cliProxySyncEnabled).toHaveBeenCalledWith("http://127.0.0.1:40002", {
+        apply_live: true,
+      })
+    );
     expect(toast).toHaveBeenCalledWith("网关已按新端口重启");
   });
 
@@ -996,7 +1006,11 @@ describe("settings/useSettingsPersistence", () => {
     });
 
     await waitFor(() => expect(gatewayStart).toHaveBeenCalled());
-    await waitFor(() => expect(cliProxySyncEnabled).toHaveBeenCalledWith("http://127.0.0.1:40000"));
+    await waitFor(() =>
+      expect(cliProxySyncEnabled).toHaveBeenCalledWith("http://127.0.0.1:40000", {
+        apply_live: true,
+      })
+    );
   });
 
   it("toasts and reverts when settings_set throws", async () => {

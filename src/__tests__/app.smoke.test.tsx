@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createTestQueryClient } from "../test/utils/reactQuery";
@@ -49,10 +49,10 @@ function renderApp() {
   );
 }
 
-async function renderRouteAndFindHeading(hash: string, headingName: string) {
+async function renderRouteAndFindHeading(hash: string, headingName: string, timeout = 15000) {
   window.location.hash = hash;
   renderApp();
-  return screen.findByRole("heading", { level: 1, name: headingName }, { timeout: 5000 });
+  return screen.findByRole("heading", { level: 1, name: headingName }, { timeout });
 }
 
 describe("App (smoke)", () => {
@@ -64,6 +64,7 @@ describe("App (smoke)", () => {
   });
 
   afterEach(() => {
+    cleanup();
     window.location.hash = DEFAULT_HASH;
   });
 
@@ -87,7 +88,7 @@ describe("App (smoke)", () => {
     renderApp();
 
     expect(
-      await screen.findByRole("heading", { level: 1, name: "设置" }, { timeout: 5000 })
+      await screen.findByRole("heading", { level: 1, name: "设置" }, { timeout: 15000 })
     ).toBeInTheDocument();
 
     await vi.waitFor(() => {

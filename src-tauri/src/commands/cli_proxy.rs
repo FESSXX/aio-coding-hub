@@ -11,9 +11,27 @@ use tauri::Manager;
 pub(crate) async fn cli_proxy_status_all(
     app: tauri::AppHandle,
 ) -> Result<Vec<cli_proxy::CliProxyStatus>, String> {
-    blocking::run("cli_proxy_status_all", move || cli_proxy::status_all(&app))
-        .await
-        .map_err(Into::into)
+    let current_base_origin = {
+        let state = app.state::<GatewayState>();
+        let manager = state.0.lock_or_recover();
+        let status = manager.status();
+        if status.running {
+            Some(status.base_url.unwrap_or_else(|| {
+                format!(
+                    "http://127.0.0.1:{}",
+                    status.port.unwrap_or(settings::DEFAULT_GATEWAY_PORT)
+                )
+            }))
+        } else {
+            None
+        }
+    };
+
+    blocking::run("cli_proxy_status_all", move || {
+        cli_proxy::status_all(&app, current_base_origin.as_deref())
+    })
+    .await
+    .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -118,9 +136,44 @@ pub(crate) async fn cli_proxy_set_enabled(
 pub(crate) async fn cli_proxy_sync_enabled(
     app: tauri::AppHandle,
     base_origin: String,
+    apply_live: Option<bool>,
 ) -> Result<Vec<cli_proxy::CliProxyResult>, String> {
     blocking::run("cli_proxy_sync_enabled", move || {
-        cli_proxy::sync_enabled(&app, &base_origin)
+        cli_proxy::sync_enabled(&app, &base_origin, apply_live.unwrap_or(true))
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub(crate) async fn cli_proxy_rebind_codex_home(
+    app: tauri::AppHandle,
+) -> Result<cli_proxy::CliProxyResult, String> {
+    let (gateway_running, base_origin) = {
+        let state = app.state::<GatewayState>();
+        let manager = state.0.lock_or_recover();
+        let status = manager.status();
+        if status.running {
+            (
+                true,
+                status.base_url.unwrap_or_else(|| {
+                    format!(
+                        "http://127.0.0.1:{}",
+                        status.port.unwrap_or(settings::DEFAULT_GATEWAY_PORT)
+                    )
+                }),
+            )
+        } else {
+            let settings = settings::read(&app).unwrap_or_default();
+            (
+                false,
+                format!("http://127.0.0.1:{}", settings.preferred_port),
+            )
+        }
+    };
+
+    blocking::run("cli_proxy_rebind_codex_home", move || {
+        cli_proxy::rebind_codex_home_after_change(&app, &base_origin, gateway_running)
     })
     .await
     .map_err(Into::into)

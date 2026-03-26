@@ -11,7 +11,7 @@ pub(super) fn validate_cli_key(cli_key: &str) -> crate::shared::error::AppResult
 pub(super) fn home_dir<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
 ) -> crate::shared::error::AppResult<PathBuf> {
-    crate::shared::user_home::home_dir(app)
+    crate::app_paths::home_dir(app)
 }
 
 pub(super) fn mcp_target_path<R: tauri::Runtime>(

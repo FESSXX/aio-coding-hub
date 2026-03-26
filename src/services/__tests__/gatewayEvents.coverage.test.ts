@@ -265,9 +265,7 @@ describe("services/gatewayEvents (coverage)", () => {
       },
     } as any);
 
-    const gatewayLogCalls = logToConsole.mock.calls.filter(
-      (call) => call[3] === "gateway:log"
-    );
+    const gatewayLogCalls = logToConsole.mock.calls.filter((call) => call[3] === "gateway:log");
     expect(gatewayLogCalls).toHaveLength(3);
     expect(gatewayLogCalls.map((call) => call[0])).toEqual(["info", "warn", "error"]);
 

@@ -14,7 +14,7 @@
 
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import path, { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const APP_DOTDIR_NAME_ENV = "AIO_CODING_HUB_DOTDIR_NAME";
@@ -26,6 +26,18 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(__dirname, "..");
 const localDir = resolve(projectRoot, ".local");
 const overlayPath = resolve(localDir, "tauri.dev.local.json");
+const defaultTargetDir = resolve(projectRoot, "src-tauri", "target-dev");
+
+function sanitizeWindowsPath(rawPath) {
+  if (process.platform !== "win32" || typeof rawPath !== "string") {
+    return rawPath;
+  }
+
+  return rawPath
+    .split(path.delimiter)
+    .filter((entry) => !/Windows Performance Toolkit/i.test(entry))
+    .join(path.delimiter);
+}
 
 function ensureDevOverlayFileExists() {
   if (existsSync(overlayPath)) return;
@@ -89,6 +101,14 @@ function run() {
     shell: process.platform === "win32",
     env: {
       ...process.env,
+      PATH: sanitizeWindowsPath(process.env.PATH),
+      CARGO_TARGET_DIR: process.env.CARGO_TARGET_DIR || defaultTargetDir,
+      ...(process.platform === "win32" && !process.env.CARGO_BUILD_JOBS
+        ? { CARGO_BUILD_JOBS: "1" }
+        : {}),
+      ...(process.platform === "win32" && !process.env.CARGO_INCREMENTAL
+        ? { CARGO_INCREMENTAL: "0" }
+        : {}),
       [APP_DOTDIR_NAME_ENV]: DEV_APP_DOTDIR_NAME,
       // Extra safety: make sure tauri-build sees the dev identifier even if CLI config merging is skipped.
       ...(tauriConfigEnvValue ? { [TAURI_CONFIG_ENV]: tauriConfigEnvValue } : {}),

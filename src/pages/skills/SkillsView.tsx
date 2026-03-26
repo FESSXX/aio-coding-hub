@@ -492,6 +492,15 @@ export function SkillsView({
                   删除通用技能 ({selectedInstalledIds.size})
                 </Button>
               ) : null}
+              <Button
+                size="sm"
+                variant="secondary"
+                aria-label="刷新通用技能"
+                onClick={() => void installedQuery.refetch()}
+                disabled={loading || deletingInstalled}
+              >
+                {loading ? "刷新中…" : "刷新"}
+              </Button>
               <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700 dark:bg-slate-700 dark:text-slate-300">
                 {installed.length}
               </span>
@@ -653,6 +662,7 @@ export function SkillsView({
               <Button
                 size="sm"
                 variant="secondary"
+                aria-label="刷新本机技能"
                 onClick={() => void refreshLocalSkills()}
                 disabled={!canOperateLocal || localLoading || deletingLocal}
               >
@@ -753,8 +763,8 @@ export function SkillsView({
                             {skill.description}
                           </div>
                         ) : null}
-                        <div className="mt-2 truncate font-mono text-xs text-slate-500 dark:text-slate-400">
-                          {skill.path}
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                          <span className="min-w-0 truncate font-mono">{skill.path}</span>
                         </div>
                       </div>
                     </div>

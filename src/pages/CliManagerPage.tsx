@@ -7,10 +7,12 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { toast } from "sonner";
 import { type ClaudeSettingsPatch, type CodexConfigPatch } from "../services/cliManager";
+import { cliProxyRebindCodexHome, cliProxyStatusAll } from "../services/cliProxy";
 import { logToConsole } from "../services/consoleLog";
 import { type GatewayRectifierSettingsPatch } from "../services/settingsGatewayRectifier";
 import type { AppSettings } from "../services/settings";
@@ -40,6 +42,7 @@ import {
   useCliManagerCodexInfoQuery,
   useCliManagerGeminiInfoQuery,
 } from "../query/cliManager";
+import { cliProxyKeys } from "../query/keys";
 import { formatActionFailureToast } from "../utils/errors";
 import { CliManagerGeneralTab } from "../components/cli-manager/tabs/GeneralTab";
 import { PageHeader } from "../ui/PageHeader";
@@ -90,6 +93,7 @@ const TAB_FALLBACK = <div className="p-6 text-sm text-slate-500 dark:text-slate-
 
 export function CliManagerPage() {
   const [tab, setTab] = useState<TabKey>("general");
+  const queryClient = useQueryClient();
 
   const settingsQuery = useSettingsQuery();
   const appSettings = settingsQuery.data ?? null;
@@ -402,6 +406,55 @@ export function CliManagerPage() {
     await geminiInfoQuery.refetch();
   }
 
+  async function repairCodexProxyAfterCodexHomeChange() {
+    const codexProxyEnabled = await cliProxyStatusAll()
+      .then((rows) => rows?.some((row) => row.cli_key === "codex" && row.enabled) ?? false)
+      .catch((err) => {
+        logToConsole("warn", "读取 CLI 代理状态失败，将直接尝试重绑 Codex 代理", {
+          error: String(err),
+        });
+        return null;
+      });
+
+    try {
+      if (codexProxyEnabled === false) {
+        return false;
+      }
+
+      const codexResult = await cliProxyRebindCodexHome();
+
+      if (!codexResult) {
+        logToConsole("warn", "Codex Home 已切换，但 Codex 代理重绑未返回结果", {});
+        toast("Codex 目录已切换，但代理重绑未返回结果；可稍后在首页点击“修复”重试");
+        return false;
+      }
+
+      if (!codexResult.ok) {
+        logToConsole("warn", "Codex Home 已切换，但 Codex 代理重绑失败", {
+          error_code: codexResult.error_code ?? undefined,
+          message: codexResult.message,
+        });
+        toast("Codex 目录已切换，但代理重绑失败；可稍后在首页点击“修复”重试");
+        return false;
+      }
+
+      logToConsole("info", "Codex Home 已切换，已触发 Codex 代理重绑", {
+        base_origin: codexResult.base_origin ?? undefined,
+        trace_id: codexResult.trace_id,
+        message: codexResult.message,
+      });
+      return true;
+    } catch (err) {
+      logToConsole("warn", "Codex Home 已切换，但 Codex 代理重绑失败", {
+        error: String(err),
+      });
+      toast("Codex 目录已切换，但代理重绑失败；可稍后在首页点击“修复”重试");
+      return false;
+    } finally {
+      void queryClient.invalidateQueries({ queryKey: cliProxyKeys.statusAll() });
+    }
+  }
+
   async function persistCodexHomeSettings(
     codexHomeMode: AppSettings["codex_home_mode"],
     codexHomeOverride: string
@@ -415,6 +468,10 @@ export function CliManagerPage() {
     }
 
     await refreshCodex();
+    const rebound = await repairCodexProxyAfterCodexHomeChange();
+    if (rebound) {
+      await refreshCodex();
+    }
     return true;
   }
 

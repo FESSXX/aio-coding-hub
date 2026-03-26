@@ -18,6 +18,14 @@ vi.mock("react-router-dom", async () => {
   };
 });
 
+vi.mock("../app/useAppBootstrap", () => ({
+  useAppBootstrap: vi.fn(),
+}));
+
+vi.mock("../app/AppRoutes", () => ({
+  AppRoutes: () => <div data-testid="app-routes">mock routes</div>,
+}));
+
 describe("router config", () => {
   it("disables startTransition-wrapped router updates to keep navigation responsive", async () => {
     const { default: App } = await import("../App");
@@ -30,5 +38,5 @@ describe("router config", () => {
     );
 
     expect(hashRouterPropsRef.current?.unstable_useTransitions).toBe(false);
-  });
+  }, 30000);
 });

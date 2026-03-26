@@ -266,7 +266,7 @@ describe("pages/skills/SkillsView", () => {
     expect(screen.queryByRole("button", { name: "导入技能库" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "初始化同步" })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+    fireEvent.click(screen.getByRole("button", { name: "刷新本机技能" }));
     await waitFor(() => expect(refetch).toHaveBeenCalledTimes(1));
   });
 
@@ -314,7 +314,7 @@ describe("pages/skills/SkillsView", () => {
 
     render(<SkillsView workspaceId={1} cliKey="claude" isActiveWorkspace />);
 
-    fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+    fireEvent.click(screen.getByRole("button", { name: "刷新本机技能" }));
     await waitFor(() => expect(refetch).toHaveBeenCalledTimes(1));
   });
 
@@ -500,7 +500,7 @@ describe("pages/skills/SkillsView", () => {
     expect(localDeleteMutation.mutateAsync).toHaveBeenCalledTimes(1);
     expect(importMutation.mutateAsync).toHaveBeenCalledTimes(1);
 
-    const refreshButton = screen.getByRole("button", { name: "刷新", hidden: true });
+    const refreshButton = screen.getByRole("button", { name: "刷新本机技能", hidden: true });
     expect(refreshButton).toBeDisabled();
   });
 });

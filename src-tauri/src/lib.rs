@@ -402,6 +402,7 @@ pub fn run() {
             cli_proxy_status_all,
             cli_proxy_set_enabled,
             cli_proxy_sync_enabled,
+            cli_proxy_rebind_codex_home,
             // ── provider_limit_usage ──
             provider_limit_usage_v1,
             // ── workspaces ──
@@ -449,19 +450,8 @@ pub fn run() {
     });
 }
 
-/// Specta type export configuration.
-///
-/// Uses `tauri_specta::Builder` to export TypeScript bindings for the subset of
-/// Tauri commands annotated with `#[specta::specta]`.
-/// Currently exports only the `settings_get`, `settings_set`, `providers_list`, and
-/// `provider_upsert` IPC contracts covered by `#[specta::specta]`.
-/// Do not treat the generated file as the full desktop command surface.
-///
-/// Run `cargo test export_bindings -- --ignored` to regenerate `src/generated/bindings.ts`.
-#[cfg(test)]
-#[test]
-#[ignore = "run manually: cargo test export_bindings -- --ignored"]
-fn export_bindings() {
+/// 导出前端使用的 TypeScript IPC 绑定。
+pub fn export_typescript_bindings(output_path: &str) -> Result<(), String> {
     let builder =
         tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
             commands::settings::settings_get,
@@ -479,7 +469,19 @@ fn export_bindings() {
 // NOTE: Partial IPC contract only. Currently exports settings_get, settings_set, providers_list, and provider_upsert.",
                 )
                 .bigint(specta_typescript::BigIntExportBehavior::Number),
-            "../src/generated/bindings.ts",
+            output_path,
         )
+        .map_err(|error| format!("failed to export specta TypeScript bindings: {error}"))
+}
+
+/// Specta type export smoke test.
+///
+/// 仅用于手动重新导出前端 bindings：
+/// `cargo test export_bindings -- --ignored`
+#[cfg(test)]
+#[test]
+#[ignore = "run manually: cargo test export_bindings -- --ignored"]
+fn export_bindings() {
+    export_typescript_bindings("../src/generated/bindings.ts")
         .expect("failed to export specta TypeScript bindings");
 }

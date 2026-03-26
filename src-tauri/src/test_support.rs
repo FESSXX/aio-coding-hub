@@ -195,6 +195,13 @@ pub fn codex_config_toml_raw_set<R: tauri::Runtime>(
     crate::infra::codex_config::codex_config_toml_set_raw(app, toml).map(|_| ())
 }
 
+pub fn codex_config_get_json<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> crate::shared::error::AppResult<serde_json::Value> {
+    let state = crate::infra::codex_config::codex_config_get(app)?;
+    serialize_json(state)
+}
+
 pub fn skills_swap_local_for_workspace_switch<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     cli_key: &str,

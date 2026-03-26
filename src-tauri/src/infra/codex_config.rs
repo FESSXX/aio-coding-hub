@@ -886,15 +886,25 @@ fn make_state_from_bytes(
     meta: CodexConfigStateMeta,
     bytes: Option<Vec<u8>>,
 ) -> crate::shared::error::AppResult<CodexConfigState> {
+    let CodexConfigStateMeta {
+        config_dir,
+        config_path,
+        user_home_default_dir,
+        user_home_default_path,
+        follow_codex_home_dir,
+        follow_codex_home_path,
+        can_open_config_dir,
+    } = meta;
+
     let exists = bytes.is_some();
     let mut state = CodexConfigState {
-        config_dir: meta.config_dir,
-        config_path: meta.config_path,
-        user_home_default_dir: meta.user_home_default_dir,
-        user_home_default_path: meta.user_home_default_path,
-        follow_codex_home_dir: meta.follow_codex_home_dir,
-        follow_codex_home_path: meta.follow_codex_home_path,
-        can_open_config_dir: meta.can_open_config_dir,
+        config_dir,
+        config_path,
+        user_home_default_dir,
+        user_home_default_path,
+        follow_codex_home_dir,
+        follow_codex_home_path,
+        can_open_config_dir,
         exists,
 
         model: None,
@@ -1045,11 +1055,12 @@ pub fn codex_config_get<R: tauri::Runtime>(
     let follow_dir = follow_path.parent().unwrap_or(Path::new("")).to_path_buf();
     let bytes = read_optional_file(&path)?;
 
-    let can_open_config_dir = crate::shared::user_home::home_dir(app)
+    let can_open_config_dir = crate::app_paths::home_dir(app)
         .ok()
         .map(|home| {
             let allowed_root = home.join(".codex");
             path_is_under_allowed_root(&dir, &allowed_root)
+                || follow_dir == dir
                 || codex_paths::configured_codex_home_dir(app)
                     .as_ref()
                     .is_some_and(|configured_dir| configured_dir == &dir)
