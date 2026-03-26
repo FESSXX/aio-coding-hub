@@ -290,6 +290,23 @@ fn find_exe_in_dir(dir: &Path, names: &[String]) -> Option<PathBuf> {
     None
 }
 
+/// Platform-specific system directories that GUI-launched processes may lack in PATH.
+///
+/// On macOS / Linux, apps launched from Dock / .desktop inherit a minimal PATH
+/// (typically `/usr/bin:/bin`). This list ensures we also search Homebrew, system,
+/// and common package-manager locations.
+#[cfg(not(windows))]
+fn platform_extra_path_dirs() -> &'static [&'static str] {
+    #[cfg(target_os = "macos")]
+    {
+        &["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
+    }
+    #[cfg(target_os = "linux")]
+    {
+        &["/usr/local/bin", "/usr/bin", "/bin"]
+    }
+}
+
 fn find_exe_in_path(names: &[String]) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     let raw = path.to_string_lossy().to_string();
@@ -324,18 +341,9 @@ fn scan_executable(
         home.join(".cargo").join("bin"),
     ];
 
-    #[cfg(target_os = "macos")]
-    {
-        candidates.push(PathBuf::from("/opt/homebrew/bin"));
-        candidates.push(PathBuf::from("/usr/local/bin"));
-        candidates.push(PathBuf::from("/usr/bin"));
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        candidates.push(PathBuf::from("/usr/local/bin"));
-        candidates.push(PathBuf::from("/usr/bin"));
-        candidates.push(PathBuf::from("/bin"));
+    #[cfg(not(windows))]
+    for dir in platform_extra_path_dirs() {
+        candidates.push(PathBuf::from(dir));
     }
 
     #[cfg(windows)]
@@ -458,6 +466,18 @@ fn resolve_executable_via_login_shell(
 fn run_version(exe: &Path) -> crate::shared::error::AppResult<String> {
     let mut cmd = Command::new(exe);
     cmd.arg("--version");
+
+    // GUI-launched processes on macOS/Linux inherit a minimal PATH that often
+    // lacks Homebrew / nvm / system dirs. Prepend the standard locations so that
+    // shebang-based CLIs (#!/usr/bin/env node) can resolve their runtime.
+    #[cfg(not(windows))]
+    {
+        let extra = platform_extra_path_dirs().join(":");
+        cmd.env(
+            "PATH",
+            format!("{}:{}", extra, std::env::var("PATH").unwrap_or_default()),
+        );
+    }
 
     #[cfg(windows)]
     {
