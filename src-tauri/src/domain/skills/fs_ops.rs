@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 const MANAGED_MARKER_FILE: &str = ".aio-coding-hub.managed";
 const SOURCE_MARKER_FILE: &str = ".aio-coding-hub.source.json";
@@ -12,25 +13,59 @@ pub(super) struct SkillSourceMetadata {
 }
 
 pub(super) fn copy_dir_recursive(src: &Path, dst: &Path) -> crate::shared::error::AppResult<()> {
+    let mut visited = HashSet::new();
+    copy_dir_recursive_impl(src, dst, &mut visited)
+}
+
+fn copy_dir_recursive_impl(
+    src: &Path,
+    dst: &Path,
+    visited: &mut HashSet<PathBuf>,
+) -> crate::shared::error::AppResult<()> {
     let src_meta = std::fs::symlink_metadata(src)
         .map_err(|e| format!("failed to read metadata {}: {e}", src.display()))?;
-    if src_meta.file_type().is_symlink() {
-        return Err(format!("SKILL_COPY_BLOCKED_SYMLINK: {}", src.display()).into());
-    }
-    if !src_meta.is_dir() {
+
+    let actual_src = if src_meta.file_type().is_symlink() {
+        let target = std::fs::read_link(src)
+            .map_err(|e| format!("failed to read symlink {}: {e}", src.display()))?;
+        let resolved = if target.is_absolute() {
+            target
+        } else {
+            src.parent().unwrap_or_else(|| Path::new(".")).join(&target)
+        };
+        let canonical = resolved.canonicalize().map_err(|e| {
+            format!(
+                "failed to resolve symlink target {}: {e}",
+                resolved.display()
+            )
+        })?;
+
+        if !visited.insert(canonical.clone()) {
+            return Ok(());
+        }
+        canonical
+    } else {
+        src.to_path_buf()
+    };
+
+    let actual_meta = std::fs::metadata(&actual_src)
+        .map_err(|e| format!("failed to read metadata {}: {e}", actual_src.display()))?;
+
+    if !actual_meta.is_dir() {
         return Err(format!(
             "SEC_INVALID_INPUT: copy source is not a directory: {}",
-            src.display()
+            actual_src.display()
         )
         .into());
     }
 
     std::fs::create_dir_all(dst).map_err(|e| format!("failed to create {}: {e}", dst.display()))?;
-    let entries =
-        std::fs::read_dir(src).map_err(|e| format!("failed to read dir {}: {e}", src.display()))?;
+    let entries = std::fs::read_dir(&actual_src)
+        .map_err(|e| format!("failed to read dir {}: {e}", actual_src.display()))?;
+
     for entry in entries {
         let entry =
-            entry.map_err(|e| format!("failed to read dir entry {}: {e}", src.display()))?;
+            entry.map_err(|e| format!("failed to read dir entry {}: {e}", actual_src.display()))?;
         let path = entry.path();
         let file_name = entry.file_name();
         let dst_path = dst.join(&file_name);
@@ -38,16 +73,48 @@ pub(super) fn copy_dir_recursive(src: &Path, dst: &Path) -> crate::shared::error
         let file_type = entry
             .file_type()
             .map_err(|e| format!("failed to read file type {}: {e}", path.display()))?;
+
         if file_type.is_symlink() {
-            return Err(format!("SKILL_COPY_BLOCKED_SYMLINK: {}", path.display()).into());
-        }
-        if file_type.is_dir() {
-            copy_dir_recursive(&path, &dst_path)?;
+            let target = std::fs::read_link(&path)
+                .map_err(|e| format!("failed to read symlink {}: {e}", path.display()))?;
+            let resolved = if target.is_absolute() {
+                target
+            } else {
+                path.parent()
+                    .unwrap_or_else(|| Path::new("."))
+                    .join(&target)
+            };
+
+            let target_meta = std::fs::metadata(&resolved).map_err(|e| {
+                format!(
+                    "failed to resolve symlink target {}: {e}",
+                    resolved.display()
+                )
+            })?;
+
+            if target_meta.is_dir() {
+                copy_dir_recursive_impl(&resolved, &dst_path, visited)?;
+            } else {
+                std::fs::copy(&resolved, &dst_path).map_err(|e| {
+                    format!(
+                        "failed to copy symlink target {} -> {}: {e}",
+                        resolved.display(),
+                        dst_path.display()
+                    )
+                })?;
+            }
             continue;
         }
+
+        if file_type.is_dir() {
+            copy_dir_recursive_impl(&path, &dst_path, visited)?;
+            continue;
+        }
+
         if !file_type.is_file() {
             return Err(format!("SKILL_COPY_BLOCKED_SPECIAL_FILE: {}", path.display()).into());
         }
+
         std::fs::copy(&path, &dst_path).map_err(|e| {
             format!(
                 "failed to copy {} -> {}: {e}",

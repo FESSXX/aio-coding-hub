@@ -73,7 +73,7 @@ fn return_to_local_moves_skill_out_of_managed_registry_and_keeps_local_dir() {
 }
 
 #[test]
-fn return_to_local_blocks_symlink_entries_inside_ssot_dir() {
+fn return_to_local_resolves_symlink_entries_inside_ssot_dir() {
     let app = support::TestApp::new();
     let handle = app.handle();
 
@@ -84,33 +84,36 @@ fn return_to_local_blocks_symlink_entries_inside_ssot_dir() {
     std::fs::write(&external_file, "external\n").expect("write external file");
     symlink_file(&external_file, &fix.ssot_skill_dir.join("linked.txt")).expect("create symlink");
 
-    let err = aio_coding_hub_lib::test_support::skill_return_to_local(
+    let ok = aio_coding_hub_lib::test_support::skill_return_to_local(
         &handle,
         fix.workspace_id,
         fix.skill_id,
     )
-    .unwrap_err()
-    .to_string();
+    .expect("return to local should succeed with symlink");
 
+    assert!(ok, "skill return_to_local should succeed");
+
+    let local_dir = fix.cli_skills_root.join(&fix.skill_key);
     assert!(
-        err.starts_with("SKILL_COPY_BLOCKED_SYMLINK:"),
-        "unexpected error: {err}"
-    );
-    assert!(
-        !fix.cli_skills_root.join(&fix.skill_key).exists(),
-        "local target should be cleaned up after a blocked copy"
+        local_dir.exists(),
+        "local skill dir should exist after returning"
     );
 
-    let remaining: i64 = fix
-        .conn
-        .query_row(
-            "SELECT COUNT(1) FROM skills WHERE id = ?1",
-            params![fix.skill_id],
-            |row| row.get(0),
-        )
-        .expect("count skills");
+    let copied_file = local_dir.join("linked.txt");
+    assert!(
+        copied_file.exists(),
+        "symlink target content should be copied"
+    );
+    let content = std::fs::read_to_string(&copied_file).expect("read copied file");
     assert_eq!(
-        remaining, 1,
-        "skill row should remain when return_to_local fails"
+        content, "external\n",
+        "copied file should contain the symlink target content"
+    );
+
+    // The copied file should be a regular file, not a symlink
+    let meta = std::fs::symlink_metadata(&copied_file).expect("read metadata");
+    assert!(
+        !meta.file_type().is_symlink(),
+        "copied file should be a regular file, not a symlink"
     );
 }
